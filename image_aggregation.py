@@ -29,11 +29,11 @@ class ImageAggregation:
         _metadata_answer_counts_a_2_3 = 0 # stained_25_50
         _metadata_answer_counts_a_2_4 = 0 # stained_50_75
         _metadata_answer_counts_a_2_5 = 0 # stained_75_95
-        _metadata_answer_counts_a_2_6 = 0 #
-        _metadata_answer_counts_a_3_0 = 0 #
-        _metadata_answer_counts_a_3_1 = 0 #
-        _metadata_answer_counts_a_3_2 = 0 #
-        _metadata_answer_counts_a_3_3 = 0 #
+        _metadata_answer_counts_a_2_6 = 0 # stained_95_100
+        _metadata_answer_counts_a_3_0 = 0 # bright_na
+        _metadata_answer_counts_a_3_1 = 0 # bright_weak
+        _metadata_answer_counts_a_3_2 = 0 # bright_medium
+        _metadata_answer_counts_a_3_3 = 0 # bright_strong
         _metadata_collection = 0
         _metadata_id_no = 0
         _metadata_index = 0
@@ -47,22 +47,6 @@ class ImageAggregation:
         _updated_at = 0
         _workflow_ids = 0
         _zooniverse_id = 0
-        # collection of all classifications for this image
-        _classifications = None
-        # calculated data for class
-         = 0
-         = 0
-         = 0
-         = 0
-         = 0
-         = 0
-         = 0
-         = 0
-        _stained_95_100 = 0
-        _bright_na = 0
-        _bright_weak = 0
-        _bright_medium = 0
-        _bright_strong = 0
 
     def aggregate_from_classifications(self):
         # need to write this if we need to process raw classification data
