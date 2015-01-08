@@ -4,6 +4,7 @@ class ImageAggregation:
 
     def __init__(self):
         # raw data for class
+        #
         _id = 0
         _activated_at = 0
         _classification_count = 0
