@@ -21,19 +21,19 @@ class ImageAggregation:
         _meatdata_orig_file_name = 0
         _meatdata_score = 0
         _meatdata_stain_type = 0
-        _metadata_answer_counts_a_1_1 = 0 # cancer_yes
-        _metadata_answer_counts_a_1_2 = 0 # cancer_no
-        _metadata_answer_counts_a_2_0 = 0 # stained_na
-        _metadata_answer_counts_a_2_1 = 0 # stained_none
-        _metadata_answer_counts_a_2_2 = 0 # stained_1_25
-        _metadata_answer_counts_a_2_3 = 0 # stained_25_50
-        _metadata_answer_counts_a_2_4 = 0 # stained_50_75
-        _metadata_answer_counts_a_2_5 = 0 # stained_75_95
-        _metadata_answer_counts_a_2_6 = 0 # stained_95_100
-        _metadata_answer_counts_a_3_0 = 0 # bright_na
-        _metadata_answer_counts_a_3_1 = 0 # bright_weak
-        _metadata_answer_counts_a_3_2 = 0 # bright_medium
-        _metadata_answer_counts_a_3_3 = 0 # bright_strong
+        _cancer_yes = 0 # metadata_answer_counts_a_1_1
+        _cancer_no = 0 # metadata_answer_counts_a_1_2
+        _stained_na = 0 # metadata_answer_counts_a_2_0
+        _stained_none = 0 # metadata_answer_counts_a_2_1
+        _stained_1_25 = 0 # metadata_answer_counts_a_2_2
+        _stained_25_50 = 0 # metadata_answer_counts_a_2_3
+        _stained_50_75 = 0 # metadata_answer_counts_a_2_4
+        _stained_75_95 = 0 # metadata_answer_counts_a_2_5
+        _stained_95_100 = 0 # metadata_answer_counts_a_2_6
+        _bright_na = 0 # metadata_answer_counts_a_3_0
+        _bright_weak = 0 # metadata_answer_counts_a_3_1
+        _bright_medium = 0 # metadata_answer_counts_a_3_2
+        _bright_strong = 0 # metadata_answer_counts_a_3_3
         _metadata_collection = 0
         _metadata_id_no = 0
         _metadata_index = 0
@@ -63,7 +63,7 @@ class ImageAggregation:
     def calculate_median2(self):
         pass
 
-class Sample:
+class Core:
 
     def __init__(self):
         # collection of aggregations for this sample
@@ -72,5 +72,19 @@ class Sample:
 
     def calculate_medians(self):
         pass
+
+def create_image_aggregations():
+    # create empty dictionary
+    # connect to mongo raw image data
+    # for each row in raw image data
+        # get subject id
+        # if subject id in dictionary
+            # get value (ImageAggregation object)
+        # else (new image)
+            # create new ImageAggregation object
+            # do any initialisation required
+            # add this to dictionanry with subject id as key
+        # process row to increment counts in ImageAggregation object
+
 
 
