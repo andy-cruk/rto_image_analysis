@@ -2,7 +2,7 @@ __author__ = 'paters01'
 
 from bson.objectid import ObjectId
 from pymongo import MongoClient
-
+import collections
 
 #
 # class SubjectAggregation:
@@ -83,10 +83,10 @@ def create_subject_aggregations(subject_aggregations, db_connection):
     # iterate through subjects and create an aggregation object for each and initialise it
     #{"_id": ObjectId("5425947c69736d3813000000")}
     processed_count = 0
-    for subject in subjects_collection.find().limit(1000000):
+    for subject in subjects_collection.find().limit(10):
         subject_id =  subject["_id"]
         # print subject_id
-        new_subject_aggregation = {}
+        new_subject_aggregation = collections.OrderedDict()
         # add to dictionary
         subject_aggregations[subject_id] = new_subject_aggregation
         # initialise aggregation
@@ -219,7 +219,7 @@ db_connection = MongoClient("localhost", 27017)
 subject_aggregations = dict()
 
 create_subject_aggregations(subject_aggregations, db_connection)
-import_classification_data(subject_aggregations, db_connection)
+# import_classification_data(subject_aggregations, db_connection)
 save_aggregated_data(subject_aggregations, db_connection)
 
 db_connection.close()
