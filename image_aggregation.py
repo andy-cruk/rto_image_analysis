@@ -4,76 +4,6 @@ from bson.objectid import ObjectId
 from pymongo import MongoClient
 import collections
 
-#
-# class SubjectAggregation:
-#
-#     def __init__(self):
-#         # raw data for class
-#         #
-#         _id = 0
-#         activated_at = 0
-#         classification_count = 0
-#         created_at = 0
-#         group_id = 0
-#         group_zooniverse_id = 0
-#         group_name = ''
-#         location_standard = ''
-#         location_thumbnail = ''
-#         project_id = 0
-#         random = 0
-#         state = 0
-#         updated_at = 0
-#         workflow_id = 0
-#         zooniverse_id = 0
-#         # subject metadata
-#         collection = 0
-#         id_no = 0
-#         index = 0
-#         orig_directory = 0
-#         orig_file_name = 0
-#         stain_type = 0
-#         # aggregation data
-#         cancer_yes = 0 # metadata_answer_counts_a_1_1
-#         cancer_no = 0 # metadata_answer_counts_a_1_2
-#         stained_na = 0 # metadata_answer_counts_a_2_0
-#         stained_none = 0 # metadata_answer_counts_a_2_1
-#         stained_1_25 = 0 # metadata_answer_counts_a_2_2
-#         stained_25_50 = 0 # metadata_answer_counts_a_2_3
-#         stained_50_75 = 0 # metadata_answer_counts_a_2_4
-#         stained_75_95 = 0 # metadata_answer_counts_a_2_5
-#         stained_95_100 = 0 # metadata_answer_counts_a_2_6
-#         bright_na = 0 # metadata_answer_counts_a_3_0
-#         bright_weak = 0 # metadata_answer_counts_a_3_1
-#         bright_medium = 0 # metadata_answer_counts_a_3_2
-#         bright_strong = 0 # metadata_answer_counts_a_3_3
-#
-#
-#     def aggregate_from_classifications(self):
-#         # need to write this if we need to process raw classification data
-#         for classification in self._classifications:
-#             pass
-#
-#     def calculate_medians(self):
-#         self.calculate_median1()
-#         self.calculate_median2()
-#
-#     def calculate_median1(self):
-#         pass
-#
-#     def calculate_median2(self):
-#         pass
-#
-#
-# class Core:
-#
-#     def __init__(self):
-#         # collection of aggregations for this sample
-#         _image_aggregations = None
-#         pass
-#
-#     def calculate_medians(self):
-#         pass
-
 
 def create_subject_aggregations(subject_aggregations, db_connection):
     subjects_collection = db_connection.RTO_20150107.subjects
@@ -210,17 +140,73 @@ def save_aggregated_data(subject_aggregations, db_connection):
         subject_aggregations_db_collection.insert(subject_aggregation)
 
 
+def load_aggregated_data(db_connection):
+    aggregations = dict()
+    cursor = db_connection.RTO_20150107.subject_aggregations.find().limit(10)
+    for item in cursor:
+        aggregations[item["subject_id"]] = collections.OrderedDict(item)
+    return aggregations
+
+
+def calculate_aggregation_medians(subject_aggregations):
+    for subject_aggregation in subject_aggregations.values():
+        stained_na = subject_aggregation["stained_na"]
+        stained_none = subject_aggregation["stained_none"]
+        stained_1_25 = subject_aggregation["stained_1_25"]
+        stained_25_50 = subject_aggregation["stained_25_50"]
+        stained_50_75 = subject_aggregation["stained_50_75"]
+        stained_75_95 = subject_aggregation["stained_75_95"]
+        stained_95_100 = subject_aggregation["stained_95_100"]
+
+        total_count = stained_none + stained_1_25 + stained_25_50 + stained_50_75 + stained_75_95 + stained_95_100
+        target_count = total_count / 2
+
+        stained_median = ""
+        running_total = stained_none
+        if running_total > target_count:
+            stained_median = "stained_none"
+
+        running_total += stained_1_25
+        if running_total > target_count:
+            stained_median = "stained_1_25"
+
+        running_total += stained_25_50
+        if running_total > target_count:
+            stained_median = "stained_25_50"
+
+        running_total += stained_50_75
+        if running_total > target_count:
+            stained_median = "stained_50_75"
+
+        running_total += stained_75_95
+        if running_total > target_count:
+            stained_median = "stained_75_95"
+        else:
+            stained_median = "stained_95_100"
+
+        subject_aggregation["stained_median"] = stained_median
+
+
+
+        bright_na = subject_aggregation["bright_na"]
+        bright_weak = subject_aggregation["bright_weak"]
+        bright_medium = subject_aggregation["bright_medium"]
+        bright_strong = subject_aggregation["bright_strong"]
 
 # main program
 
 # connect to mongo subjects data
 db_connection = MongoClient("localhost", 27017)
 # create empty dictionary
-subject_aggregations = dict()
+# subject_aggregations = dict()
+#
+# create_subject_aggregations(subject_aggregations, db_connection)
+# import_classification_data(subject_aggregations, db_connection)
+# save_aggregated_data(subject_aggregations, db_connection)
 
-create_subject_aggregations(subject_aggregations, db_connection)
-import_classification_data(subject_aggregations, db_connection)
-save_aggregated_data(subject_aggregations, db_connection)
+subject_aggregations = load_aggregated_data(db_connection)
+
+print(type(subject_aggregations))
 
 db_connection.close()
 
