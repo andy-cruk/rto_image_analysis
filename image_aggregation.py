@@ -4,76 +4,6 @@ from bson.objectid import ObjectId
 from pymongo import MongoClient
 import collections
 
-#
-# class SubjectAggregation:
-#
-#     def __init__(self):
-#         # raw data for class
-#         #
-#         _id = 0
-#         activated_at = 0
-#         classification_count = 0
-#         created_at = 0
-#         group_id = 0
-#         group_zooniverse_id = 0
-#         group_name = ''
-#         location_standard = ''
-#         location_thumbnail = ''
-#         project_id = 0
-#         random = 0
-#         state = 0
-#         updated_at = 0
-#         workflow_id = 0
-#         zooniverse_id = 0
-#         # subject metadata
-#         collection = 0
-#         id_no = 0
-#         index = 0
-#         orig_directory = 0
-#         orig_file_name = 0
-#         stain_type = 0
-#         # aggregation data
-#         cancer_yes = 0 # metadata_answer_counts_a_1_1
-#         cancer_no = 0 # metadata_answer_counts_a_1_2
-#         stained_na = 0 # metadata_answer_counts_a_2_0
-#         stained_none = 0 # metadata_answer_counts_a_2_1
-#         stained_1_25 = 0 # metadata_answer_counts_a_2_2
-#         stained_25_50 = 0 # metadata_answer_counts_a_2_3
-#         stained_50_75 = 0 # metadata_answer_counts_a_2_4
-#         stained_75_95 = 0 # metadata_answer_counts_a_2_5
-#         stained_95_100 = 0 # metadata_answer_counts_a_2_6
-#         bright_na = 0 # metadata_answer_counts_a_3_0
-#         bright_weak = 0 # metadata_answer_counts_a_3_1
-#         bright_medium = 0 # metadata_answer_counts_a_3_2
-#         bright_strong = 0 # metadata_answer_counts_a_3_3
-#
-#
-#     def aggregate_from_classifications(self):
-#         # need to write this if we need to process raw classification data
-#         for classification in self._classifications:
-#             pass
-#
-#     def calculate_medians(self):
-#         self.calculate_median1()
-#         self.calculate_median2()
-#
-#     def calculate_median1(self):
-#         pass
-#
-#     def calculate_median2(self):
-#         pass
-#
-#
-# class Core:
-#
-#     def __init__(self):
-#         # collection of aggregations for this sample
-#         _image_aggregations = None
-#         pass
-#
-#     def calculate_medians(self):
-#         pass
-
 
 def create_subject_aggregations(subject_aggregations, db_connection):
     subjects_collection = db_connection.RTO_20150107.subjects
@@ -89,7 +19,7 @@ def create_subject_aggregations(subject_aggregations, db_connection):
         new_subject_aggregation = collections.OrderedDict()
         # add to dictionary
         subject_aggregations[subject_id] = new_subject_aggregation
-        # initialise aggregation
+        # initialise aggregation with subject data from database
         new_subject_aggregation["subject_id"] = subject_id
         new_subject_aggregation["state"] = subject["state"]
         if new_subject_aggregation["state"] != "inactive":
