@@ -13,7 +13,7 @@ def create_subject_aggregations(subject_aggregations, db_connection):
     # iterate through subjects and create an aggregation object for each and initialise it
     #{"_id": ObjectId("5425947c69736d3813000000")}
     processed_count = 0
-    for subject in subjects_collection.find().limit(1000000):
+    for subject in subjects_collection.find({"classification_count": {"$gt" : 0}}).limit(1000000):
         subject_id =  subject["_id"]
         # print subject_id
         new_subject_aggregation = collections.OrderedDict()
@@ -39,6 +39,8 @@ def create_subject_aggregations(subject_aggregations, db_connection):
             new_subject_aggregation["orig_directory"] = metadata["orig_directory"]
             new_subject_aggregation["orig_file_name"] = metadata["orig_file_name"]
             new_subject_aggregation["stain_type"] = metadata["stain_type"]
+        else:
+            pass
         new_subject_aggregation["project_id"] = subject["project_id"]
         new_subject_aggregation["random"] = subject["random"]
         new_subject_aggregation["updated_at"] = subject["updated_at"]
@@ -140,17 +142,153 @@ def save_aggregated_data(subject_aggregations, db_connection):
         subject_aggregations_db_collection.insert(subject_aggregation)
 
 
+def save_aggregated_data_m(subject_aggregations, db_connection):
+    subject_aggregations_db_collection = db_connection.RTO_20150107.subject_aggregations_m
+    # clear existing data
+    subject_aggregations_db_collection.remove()
+    for subject_aggregation in subject_aggregations.values():
+        subject_aggregations_db_collection.insert(subject_aggregation)
+
+
+def load_aggregated_data(db_connection):
+    aggregations = dict()
+    cursor = db_connection.RTO_20150107.subject_aggregations.find().limit(1000000)
+    for item in cursor:
+        aggregations[item["subject_id"]] = collections.OrderedDict(item)
+    return aggregations
+
+
+def calculate_median(subject_or_core_aggregation):
+    stained_none = subject_or_core_aggregation["stained_none"]
+    stained_1_25 = subject_or_core_aggregation["stained_1_25"]
+    stained_25_50 = subject_or_core_aggregation["stained_25_50"]
+    stained_50_75 = subject_or_core_aggregation["stained_50_75"]
+    stained_75_95 = subject_or_core_aggregation["stained_75_95"]
+    stained_95_100 = subject_or_core_aggregation["stained_95_100"]
+
+    total_count = stained_none + stained_1_25 + stained_25_50 + stained_50_75 + stained_75_95 + stained_95_100
+    target_count = (total_count + 1) / 2
+
+    stained_median = ""
+    if target_count > 0:
+        running_total = stained_none
+        if running_total >= target_count:
+            stained_median = "stained_none"
+        else:
+            running_total += stained_1_25
+            if running_total >= target_count:
+                stained_median = "stained_1_25"
+            else:
+                running_total += stained_25_50
+                if running_total >= target_count:
+                    stained_median = "stained_25_50"
+                else:
+                    running_total += stained_50_75
+                    if running_total >= target_count:
+                        stained_median = "stained_50_75"
+                    else:
+                        running_total += stained_75_95
+                        if running_total >= target_count:
+                            stained_median = "stained_75_95"
+                        else:
+                            stained_median = "stained_95_100"
+    subject_or_core_aggregation["stained_median"] = stained_median
+
+    bright_weak = subject_or_core_aggregation["bright_weak"]
+    bright_medium = subject_or_core_aggregation["bright_medium"]
+    bright_strong = subject_or_core_aggregation["bright_strong"]
+
+    total_count = bright_weak + bright_medium + bright_strong
+    target_count = (total_count + 1) / 2
+
+    bright_median = ""
+    if target_count > 0:
+        running_total = bright_weak
+        if running_total >= target_count:
+            bright_median = "bright_weak"
+        else:
+            running_total += bright_medium
+            if running_total >= target_count:
+                bright_median = "bright_medium"
+            else:
+                bright_median = "bright_strong"
+    subject_or_core_aggregation["bright_median"] = bright_median
+
+
+def calculate_aggregation_medians(subject_aggregations):
+    for subject_aggregation in subject_aggregations.values():
+        calculate_median(subject_aggregation)
+
+
+def save_aggregated_core_data(core_aggregations, db_connection):
+    core_aggregations_db_collection = db_connection.RTO_20150107.core_aggregations
+    # clear existing data
+    core_aggregations_db_collection.remove()
+    for core_aggregation in core_aggregations.values():
+        core_aggregations_db_collection.insert(core_aggregation)
+
+
+def create_core_aggregations(core_aggregations, subject_aggregations):
+    count = 0
+    for subject_aggregation in subject_aggregations.values():
+        core_id = subject_aggregation["id_no"]  # note, this may not exist if subjects without classifications are included
+        count += 1
+        if count == 95797:
+            pass
+        print(count, ":", core_id)
+        if core_id in core_aggregations.keys():
+            core_aggregation = core_aggregations[core_id]
+        else:
+            # doesn't exist so create and initialise it
+            core_aggregation = collections.OrderedDict()
+            core_aggregation["core_id"] = core_id
+            core_aggregation["stain_type"] = subject_aggregation["stain_type"]
+            core_aggregation["stained_none"] = 0
+            core_aggregation["stained_1_25"] = 0
+            core_aggregation["stained_25_50"] = 0
+            core_aggregation["stained_50_75"] = 0
+            core_aggregation["stained_75_95"] = 0
+            core_aggregation["stained_95_100"] = 0
+            core_aggregation["bright_weak"] = 0
+            core_aggregation["bright_medium"] = 0
+            core_aggregation["bright_strong"] = 0
+            core_aggregations[core_id] = core_aggregation
+
+        # add in counts from subject aggregation
+        subject_stained_median = subject_aggregation["stained_median"]
+        if subject_stained_median != "":
+            core_aggregation[subject_stained_median] += 1
+
+        subject_bright_median = subject_aggregation["bright_median"]
+        if subject_bright_median != "":
+            core_aggregation[subject_bright_median] += 1
+
+
+def calculate_core_medians(core_aggregations):
+    for core_aggregation in core_aggregations.values():
+        calculate_median(core_aggregation)
+
 
 # main program
 
 # connect to mongo subjects data
 db_connection = MongoClient("localhost", 27017)
 # create empty dictionary
-subject_aggregations = dict()
+# subject_aggregations = dict()
+#
+# create_subject_aggregations(subject_aggregations, db_connection)
+# import_classification_data(subject_aggregations, db_connection)
+# save_aggregated_data(subject_aggregations, db_connection)
 
-create_subject_aggregations(subject_aggregations, db_connection)
-import_classification_data(subject_aggregations, db_connection)
-save_aggregated_data(subject_aggregations, db_connection)
+subject_aggregations = load_aggregated_data(db_connection)
+calculate_aggregation_medians(subject_aggregations)
+save_aggregated_data_m(subject_aggregations, db_connection)
+
+core_aggregations = dict()
+create_core_aggregations(core_aggregations, subject_aggregations)
+calculate_core_medians(core_aggregations)
+save_aggregated_core_data(core_aggregations, db_connection)
+
 
 db_connection.close()
 
