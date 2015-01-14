@@ -19,7 +19,7 @@ def create_subject_aggregations(subject_aggregations, db_connection):
         new_subject_aggregation = collections.OrderedDict()
         # add to dictionary
         subject_aggregations[subject_id] = new_subject_aggregation
-        # initialise aggregation
+        # initialise aggregation with subject data from database
         new_subject_aggregation["subject_id"] = subject_id
         new_subject_aggregation["state"] = subject["state"]
         if new_subject_aggregation["state"] != "inactive":
