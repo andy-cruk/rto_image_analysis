@@ -159,6 +159,18 @@ def load_aggregated_data(db_connection):
 
 
 def calculate_median(subject_or_core_aggregation):
+    if "cancer_yes" in subject_or_core_aggregation:  # this is only present for subjects, NOT cores
+        cancer_yes = subject_or_core_aggregation["cancer_yes"]
+        cancer_no = subject_or_core_aggregation["cancer_no"]
+        cancer_present = (cancer_yes >= cancer_no)
+        subject_or_core_aggregation["cancer_present"] = cancer_present
+
+        subject_or_core_aggregation["stained_median"] = ""
+        subject_or_core_aggregation["bright_median"] = ""
+
+        if not cancer_present:
+            return
+
     stained_none = subject_or_core_aggregation["stained_none"]
     stained_1_25 = subject_or_core_aggregation["stained_1_25"]
     stained_25_50 = subject_or_core_aggregation["stained_25_50"]
@@ -233,8 +245,6 @@ def create_core_aggregations(core_aggregations, subject_aggregations):
     for subject_aggregation in subject_aggregations.values():
         core_id = subject_aggregation["id_no"]  # note, this may not exist if subjects without classifications are included
         count += 1
-        if count == 95797:
-            pass
         print(count, ":", core_id)
         if core_id in core_aggregations.keys():
             core_aggregation = core_aggregations[core_id]
@@ -243,6 +253,7 @@ def create_core_aggregations(core_aggregations, subject_aggregations):
             core_aggregation = collections.OrderedDict()
             core_aggregation["core_id"] = core_id
             core_aggregation["stain_type"] = subject_aggregation["stain_type"]
+            core_aggregation["no_cancer_images"] = 0
             core_aggregation["stained_none"] = 0
             core_aggregation["stained_1_25"] = 0
             core_aggregation["stained_25_50"] = 0
@@ -262,6 +273,9 @@ def create_core_aggregations(core_aggregations, subject_aggregations):
         subject_bright_median = subject_aggregation["bright_median"]
         if subject_bright_median != "":
             core_aggregation[subject_bright_median] += 1
+
+        if subject_aggregation["cancer_present"]:
+             core_aggregation["no_cancer_images"]+=1
 
 
 def calculate_core_medians(core_aggregations):
