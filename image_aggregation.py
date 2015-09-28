@@ -3,7 +3,6 @@ __author__ = 'paters01'
 from pymongo import MongoClient
 import collections
 
-
 def create_subject_aggregations(subject_aggregations, db_connection):
     subjects_collection = db_connection.RTO_15092015.subjects
     subject_count = subjects_collection.count()
@@ -64,8 +63,6 @@ def create_subject_aggregations(subject_aggregations, db_connection):
         if processed_count % 1000 == 0:
             print("processed %d" % processed_count)
     print("processed %d" % processed_count)
-
-
 def import_classification_data(subject_aggregations, db_connection):
     classifications_collection = db_connection.RTO_15092015.classifications
     classifications_count = classifications_collection.count()
@@ -131,32 +128,24 @@ def import_classification_data(subject_aggregations, db_connection):
         if processed_count % 10000 == 0:
             print("processed %d" % processed_count)
     print("processed %d" % processed_count)
-
-
 def save_aggregated_data(subject_aggregations, db_connection):
     subject_aggregations_db_collection = db_connection.RTO_15092015.subject_aggregations
     # clear existing data
     subject_aggregations_db_collection.remove()
     for subject_aggregation in subject_aggregations.values():
         subject_aggregations_db_collection.insert(subject_aggregation)
-
-
 def save_aggregated_data_m(subject_aggregations, db_connection):
     subject_aggregations_db_collection = db_connection.RTO_15092015.subject_aggregations_m
     # clear existing data
     subject_aggregations_db_collection.remove()
     for subject_aggregation in subject_aggregations.values():
         subject_aggregations_db_collection.insert(subject_aggregation)
-
-
 def load_aggregated_data(db_connection):
     aggregations = dict()
     cursor = db_connection.RTO_15092015.subject_aggregations.find().limit(1000000)
     for item in cursor:
         aggregations[item["subject_id"]] = collections.OrderedDict(item)
     return aggregations
-
-
 def calculate_median(subject_or_core_aggregation):
     if "cancer_yes" in subject_or_core_aggregation:  # this is only present for subjects, NOT cores
         cancer_yes = subject_or_core_aggregation["cancer_yes"]
@@ -237,7 +226,6 @@ def calculate_median(subject_or_core_aggregation):
     if bright_strong > bright_weak and bright_strong > bright_medium:
         bright_mode = "bright_strong"
     subject_or_core_aggregation["bright_mode"] = bright_mode
-
 def calculate_mean(core_aggregation):
     mean_proportion = ""
     stained_none = core_aggregation["stained_none"]
@@ -281,20 +269,15 @@ def calculate_mean(core_aggregation):
     elif score >= 7:
         high = "yes"
     core_aggregation["high"] = high
-
 def calculate_aggregation_medians(subject_aggregations):
     for subject_aggregation in subject_aggregations.values():
         calculate_median(subject_aggregation)
-
-
 def save_aggregated_core_data(core_aggregations, db_connection):
     core_aggregations_db_collection = db_connection.RTO_15092015.core_aggregations
     # clear existing data
     core_aggregations_db_collection.remove()
     for core_aggregation in core_aggregations.values():
         core_aggregations_db_collection.insert(core_aggregation)
-
-
 def create_core_aggregations(core_aggregations, subject_aggregations):
     count = 0
     for subject_aggregation in subject_aggregations.values():
@@ -331,13 +314,9 @@ def create_core_aggregations(core_aggregations, subject_aggregations):
 
         if subject_aggregation["cancer_present"]:
              core_aggregation["no_cancer_images"]+=1
-
-
 def calculate_core_medians(core_aggregations):
     for core_aggregation in core_aggregations.values():
         calculate_median(core_aggregation)
-
-
 def calculate_core_means(core_aggregations):
     for core_aggregation in core_aggregations.values():
         calculate_mean(core_aggregation)
