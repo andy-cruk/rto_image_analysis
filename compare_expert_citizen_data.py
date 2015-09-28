@@ -12,7 +12,7 @@ def load_aggregated_citizen_data(db_connection):
     for item in cursor:
         full_core_id = item["core_id"]
         # You will need to change the split criteria depending on the format of id_no
-        split_core_id = full_core_id.split("_")
+        split_core_id = full_core_id.split('_')
         core_id = split_core_id[1]
         aggregations[core_id] = {
             "proportion_mean": item["proportion_mean"],
@@ -73,19 +73,18 @@ def calculate_statistical_measures():
 
     proportion_expert_high_value = float(expert_high_value)/no_classifications
     proportion_citizen_high_value = float(citizen_high_value)/no_classifications
-    accuracy = float(no_true_positives + no_true_negatives)/no_classifications
     probability_both_say_high_randomly = proportion_expert_high_value * proportion_citizen_high_value
     probability_both_say_low_randomly = (1 - proportion_expert_high_value) * (1 - proportion_citizen_high_value)
-    overall_probability_random_agreement_excluding_tied = probability_both_say_high_randomly + probability_both_say_low_randomly
+    overall_probability_random_agreement = probability_both_say_high_randomly + probability_both_say_low_randomly
 
     accuracy = round(float(accuracy_numerator)/no_classifications,2)
     sensitivity = round(float(no_true_positives)/(no_true_positives + no_false_negatives),2)
     specificity = round(float(no_true_negatives)/(no_true_negatives + no_false_positives),2)
     precision = round(float(no_true_positives)/(no_true_positives + no_false_positives),2)
-    f_measure = round(float(2 * no_true_positives)/((2 * no_true_positives) + no_false_negatives + no_false_negatives),2)
-    kappa = round(float(accuracy - overall_probability_random_agreement_excluding_tied)/(1 - overall_probability_random_agreement_excluding_tied),2)
+    f_measure = round(float(2 * no_true_positives)/((2 * no_true_positives) + no_false_positives + no_false_negatives),2)
+    kappa = round(float(accuracy - overall_probability_random_agreement)/(1 - overall_probability_random_agreement),2)
 
-    print(accuracy_numerator, no_false_positives, no_true_positives, no_false_negatives, no_true_negatives, expert_high_value, citizen_high_value)
+    print("Accuracy numerator:", accuracy_numerator, "No false positives:", no_false_positives, "No true positives:", no_true_positives, "No false negatives:", no_false_negatives, "No true negatives:", no_true_negatives, "Expert high value:", expert_high_value, "Citizen high value:", citizen_high_value)
     print("Accuracy:", accuracy, "Sensitivity:", sensitivity, "Specificity:", specificity, "Precision:", precision, "F-measure:", f_measure, "Kappa:", kappa)
 
 def plot_citizen_expert_scores():
@@ -108,7 +107,7 @@ def plot_citizen_expert_scores():
 
     colors = np.random.rand(N)
     plt.scatter(expert_scores,citizen_scores, c = colors)
-    plt.title('Scatter plot of pseudo scores')
+    plt.title('Scatter plot of pseudo scores for MRE11')
     plt.xlabel('Expert score')
     plt.ylabel('Citizen Scientist score')
     plt.show()
@@ -125,10 +124,10 @@ import_gold_standard_data(gold_standard_dict)
 calculate_pseudo_score(gold_standard_dict)
 
 #### compare expert result with citizen scientist consensus
-# calculate_statistical_measures()
+calculate_statistical_measures()
 
 #### Produce a scatter plot between the expert pseudo score and the citizen scientist consensus pseudo score
-plot_citizen_expert_scores()
+# plot_citizen_expert_scores()
 
 #### close the connection to mongodb
 db_connection.close()

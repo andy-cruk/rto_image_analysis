@@ -12,7 +12,7 @@ def create_subject_aggregations(subject_aggregations, db_connection):
     # iterate through subjects and create an aggregation object for each and initialise it
     processed_count = 0
     # for subject in subjects_collection.find({"classification_count": {"$gt" : 0}}).limit(1000000):
-    for subject in subjects_collection.find({"metadata.collection": "TEST MRE11", "classification_count": {"$gt" : 0}}).limit(1000000):
+    for subject in subjects_collection.find({"metadata.stain_type": "TEST MRE11", "classification_count": {"$gt" : 0}}).limit(1000000):
         subject_id =  subject["_id"]
         # print subject_id
         new_subject_aggregation = collections.OrderedDict()
