@@ -9,7 +9,7 @@
 - Restart your computer, it should have the server running in the background now. You can check this by starting Robomongo which should have no trouble connecting to your local 127.0.0.1 server (download here: http://robomongo.org/)
 - Import your json file(s). The database you created earlier contains its own databases, and these contain collections. For example, I have a database called RTO_20150929 (date I downloaded the data), which collections 'subjects' and 'classifications'.
 	mongoimport -db <name of database> -collection <name of collection> -file <path to your json, ending in .json>
-- Now add all necessary collections to your database.
+- Now add all necessary collections to your database
 
 In pyCharm you can do things like:
 	dbConnection = MongoClient("localhost", 27017)
