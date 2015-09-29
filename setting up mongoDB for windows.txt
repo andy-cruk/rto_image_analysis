@@ -1,0 +1,23 @@
+Download and install the mongoDB client for windows from https://www.mongodb.org/downloads
+Add the \bin directory wherever you installed mongoDB (e.g. C:\Program Files\MongoDB\Server\3.0\bin) to your windows PATH variable
+Create the folder where you want mongoDB to store its data
+Open a command line or powershell with admin rights (right-click, open as admin)
+Run this command to get a server going
+	mongod.exe -dbpath <your mongoDB database folder>
+e.g.
+	mongod.exe -dbpath D:\Data\mongoDB
+This will start a local server at 127.0.0.1 which other applications can access
+Start another terminal
+Import your json file(s). The database you created earlier contains its own databases, and these contain collections. For example, I have a database called RTO_20150929 (date I downloaded the data), which collections 'subjects' and 'classifications'.
+	mongoimport -db <name of database> -collection <name of collection> -file <path to your json, ending in .json>
+Now add all necessary collections to your database.
+
+On my Windows, I always need to have a server running (mongod -dbpath <mongoDB folder>) in order to access my mongoDB database through pyCharm or robomongo; not sure if this can be prevented or is not necessary on iOS. 
+
+Then, with the server running, in pyCharm you can do things like:
+	dbConnection = MongoClient("localhost", 27017)
+	handleToData = dbConnection.<name of your db>.<name of classification>
+Count number of entries in JSON
+	handleToData.count()
+And close the connection at the end of your script, like you would close a handle to any file
+	dbConnection.close()
