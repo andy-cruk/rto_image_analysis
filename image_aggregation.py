@@ -73,7 +73,7 @@ def import_classification_data(subject_aggregations, db_connection):
     # for each row in raw image data
     for classification in classifications_collection.find().limit(10000000):
         # get subject id
-        subject_id =  classification["subject_ids"][0]
+        subject_id = classification["subject_ids"][0]
         # print(subject_id)
 
         if subject_id not in subject_aggregations:
@@ -134,7 +134,7 @@ def save_aggregated_data(subject_aggregations, db_connection):
     subject_aggregations_db_collection.remove()
     for subject_aggregation in subject_aggregations.values():
         subject_aggregations_db_collection.insert(subject_aggregation)
-def save_aggregated_data_m(subject_aggregations, db_connection):
+def save_aggregated_data_m(subject_aggregations, db_connection): # this is identical to 'save_aggregated_data'?
     subject_aggregations_db_collection = db_connection.RTO_15092015.subject_aggregations_m
     # clear existing data
     subject_aggregations_db_collection.remove()
