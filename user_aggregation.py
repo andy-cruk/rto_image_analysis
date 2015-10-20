@@ -1,9 +1,17 @@
 '''Script will calculate classification accuracy as a function of how many users are included in aggregation'''
 __author__ = 'Peter'
 
+# USER OPTIONS
+stain = "TEST MRE11"  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11"
+minClassifications = 1  # min number of classifications the segment needs to have, inclusive
+# following not implemented:
+numberOfUsersPerSubject = range(1,10) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
+samplesPerNumberOfUsers = 500       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement
+
+
 from pymongo import MongoClient
 import pandas as pd
-import scipy as s
+from scipy import stats as s
 import time
 import numpy as np
 import os.path
@@ -15,7 +23,7 @@ pd.set_option('display.width', desired_width)
 stain = "TEST MRE11"  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11"
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 
-# set dictionary with filters to feed to
+# set dictionary with filters to feed to mongoDB
 filterSubjects = {"$and": [
     {"metadata.stain_type": stain},
     {"classification_count": {"$gte": minClassifications}},
@@ -41,7 +49,7 @@ def pymongo_connection_open():
 def pymongo_connection_close():
     """Close pymongo connection"""
     dbConnection.close()
-def classifications_dataframe_fill_and_save(fn=classificationsDataframeFn):
+def classifications_dataframe_fill():
     """Find all classifications for requested stain and aggregate responses for each subject
     This function saves and returns a pandas dataframe that has one row per subject (=segment) and columns that indicate proportion of all classifications given that answer.
     Note: proportion for different stain answers might not add up to 1 as people that say 'no cancer' still count towards classifications
@@ -112,10 +120,11 @@ def classifications_dataframe_fill_and_save(fn=classificationsDataframeFn):
     cln = cl.copy()
     # normalise each of the columns starting at nCancer and all the ones to the right, using my own function def
     cln.loc[:,"nCancer":] = normalise_dataframe_by_ix(cl,cl.columns.get_loc("nClassifications"),range(cl.columns.get_loc("nCancer"),len(cl.columns)))
+    print "Done aggregating dataframe with classifications"
+    return cln
+def classifications_dataframe_save(cln,fn=classificationsDataframeFn)
     print "Saving dataframe to", fn
     cln.to_pickle(fn)
-    print "Done aggregating dataframe with classifications and saving"
-    return cln
 def classifications_dataframe_load(fn=classificationsDataframeFn):
     """load dataframe and return pandas dataframe"""
     cln = pd.read_pickle(fn)
@@ -126,6 +135,51 @@ def plot_classifications(cln):
     print cln[cln['nCancer'] > 0]
     # combine selection criteria and select columns across a range, then plot histogram
     cln.loc[(cln['nCancer'] > 0.2) & (cln['noStain'] != 0), 'noStain':'<100%Stain'].hist(bins=20)
+    plt.show()
+def plot_weighted_vs_unweighted_stain(cores):
+    """Plots scores for aggregate staining intensity and proportion for weighted vs unweighted instance; weighting happens across subjects based on their proportion of people who said it contained cancer
+    """
+    plt.figure(1)
+    plt.scatter(cores.aggregateIntensity,cores.aggregateIntensityWeighted)
+    plt.xlabel("unweighted")
+    plt.ylabel("weighted")
+    plt.title("Aggregate Intensity")
+    plt.figure(2)
+    plt.scatter(cores.aggregateProp,cores.aggregatePropWeighted)
+    plt.xlabel("unweighted")
+    plt.ylabel("weighted")
+    plt.title("Aggregate Proportion")
+    plt.show()
+def plot_user_vs_expert(cores):
+    """Plot intensity, proportion and combined scores for experts against users, and print spearman
+    :param cores: pandas dataframe
+    :return: None
+    """
+    plt.subplot(3,1,1)
+    plt.scatter(cores.expProp,cores.aggregatePropWeighted)
+    plt.xlabel("expert")
+    plt.ylabel("user")
+    rho,pval = s.spearmanr(cores.expProp,cores.aggregatePropWeighted)
+    plt.title("proportion stained, Spearman r = "+'{0:.2f}'.format(rho))
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.tight_layout(2)
+
+    plt.subplot(3,1,2)
+    plt.scatter(cores.expIntensity,cores.aggregateIntensityWeighted)
+    plt.xlabel("expert")
+    plt.ylabel("user")
+    rho,pval = s.spearmanr(cores.expIntensity,cores.aggregateIntensityWeighted)
+    plt.title("intensity stain, Spearman r = "+'{0:.2f}'.format(rho))
+    plt.gca().set_aspect('equal', adjustable='box')
+
+    plt.subplot(3,1,3)
+    plt.scatter(cores.expSQS,cores.aggregateIntensityWeighted*cores.aggregatePropWeighted)
+    plt.xlabel("expert")
+    plt.ylabel("user")
+    rho,pval = s.spearmanr(cores.expSQS,cores.aggregateIntensityWeighted*cores.aggregatePropWeighted)
+    plt.title("combined scores, Spearman r = "+'{0:.2f}'.format(rho))
+    plt.gca().set_aspect('equal', adjustable='box')
+
     plt.show()
 def cln_add_columns_aggregating_stain(cln):
     """Add 2 columns that aggregate stain proportion and intensity answers into new columns
@@ -144,26 +198,56 @@ def cln_add_columns_aggregating_stain(cln):
     # same deal for intensity, but now we multiple simply by 1,2,3 for weak, medium, strong respectively.
     cln["aggregateIntensity"] = (cln.loc[:,"stainWeak":"stainStrong"].dot(np.array([1,2,3]))) / cln.nCancer
     return cln
-def core_dataframe_fill_and_save(cln):
-    """takes a dataframe cln with columns indicating proportions of responses and aggregates all subjects for a single core
-    Each subject belongs to a core, so we'll loop over cores and collect each segment's data. Subjects are combined
-    un-weighted, i.e. a subject with 20 classifications is weighted equally to subject with 150 classifications.
-    Assumes the first column to normalise is nCancer and EVERY FOLLOWING COLUMN will be normalised too.
+def core_dataframe_fill(cln):
+    """takes a dataframe cln (row=subject,column=properties of subject such as responses); aggregates all subjects for a single core into a single row in dataframe "cores"
+    A subject with 20 classifications is weighted equally to subject with 150 classifications.
+    For combining aggregrateProp and aggregateIntensity, the contributions from different subjects are weighted by the probability of users saying
+    the subject was cancer. For example, a subject with nCancer = 0.3 will be weighted at half that of a subject with nCancer = 0.6
     """
-    # initialise new DataFrame that will have one row per core
-    cores = pd.DataFrame(data=None,index=range(0,len(get_core_ids(cln))),columns=cln.columns,dtype="int64")
+    # initialise new DataFrame that will have one row per core AND THE SAME COLUMNS AS
+    cores = pd.DataFrame(data=None,index=range(0,len(get_core_ids(cln))),columns=cln.columns,dtype="float64")
     # put in core IDs
     cores["core"]=get_core_ids(cln)
     # get rid of unnecessary subjectID column
     cores = cores.drop("subjectID",axis=1)
     # add column indicating number of subjects for each core
-    cores.insert(2,"nSubjects",np.nan)
+    cores.insert(1,"nSubjects",np.nan)
+    # add columns for weighted aggregates
+    cores.insert(len(cores.columns),"aggregatePropWeighted",np.nan)
+    cores.insert(len(cores.columns),"aggregateIntensityWeighted",np.nan)
     # loop over each core
     for ix,core in cores.iterrows(): # function retrieves unique cores from dataframe
         coreRowsInCln = cln[cln["core"]==core.core]
         # note this takes the mean across all segments, including those that probably didn't have cancer.
-        cores.loc[ix,"nClassifications":] = coreRowsInCln.loc[:,"nClassifications":].mean()
+        cores.loc[ix,"nClassifications":"aggregateIntensity"] = coreRowsInCln.loc[:,"nClassifications":"aggregateIntensity"].mean()
+        # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
+        cores.loc[ix,"aggregatePropWeighted"]       = (coreRowsInCln.aggregateProp      *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
+        cores.loc[ix,"aggregateIntensityWeighted"]  = (coreRowsInCln.aggregateIntensity *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
+        # store how many subjects were included for the core
         cores.loc[ix,"nSubjects"] = len(coreRowsInCln.index)
+    return cores
+def core_dataframe_add_expert_scores(cores):
+    """add expert scores and return the updated cores dataframe
+    """
+    # load in dataframe with columns
+    # Core ID
+    # % Positive
+    # Intensity Score
+    # SQS
+    coresGS = pd.read_excel("mre11_GS.xlsx")
+    # add expert columns to dataframe
+    cores.insert(len(cores.columns),"expProp",np.nan)
+    cores.insert(len(cores.columns),"expIntensity",np.nan)
+    cores.insert(len(cores.columns),"expSQS",np.nan)
+    # loop over each row in the cores dataframe
+    for ix,row in cores.iterrows():
+        # find row in coresGS that matches current core
+        for ixGS,rowGS in coresGS.iterrows():
+            # if the current row in coresGS is the one that matches the row in cores, then store and break
+            if str(int(rowGS.loc["Core ID"])) in row.core:
+                cores.loc[ix,"expProp":"expSQS"] = np.array(rowGS["% Positive":"SQS"])
+                # break out of the coresGS for loop
+                break
     return cores
 def get_core_ids(cln):
     """retrieves a list of cores expressed as objects for a given set of classifications
@@ -188,12 +272,27 @@ def normalise_dataframe_by_ix(df,divideByColumn,columnsToDivide):
 subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
 # check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
 if os.path.isfile(classificationsDataframeFn) == False:
-    cln = classifications_dataframe_fill_and_save(fn=classificationsDataframeFn)
+    cln = classifications_dataframe_fill()
+    classifications_dataframe_save(cln)
 else:  # dataframe available, load instead of fill
     cln = classifications_dataframe_load(fn=classificationsDataframeFn)
-
+# add columns to cln that indicates, for each subject, what the aggregate is of the multiple columns
 cln = cln_add_columns_aggregating_stain(cln)
-cores = core_dataframe_fill_and_save(cln)
+# aggregate data from multiple subjects into a single score for each core
+cores = core_dataframe_fill(cln)
+# load and add expert scores, add to the cores dataframe
+cores = core_dataframe_add_expert_scores(cores)
+
+######### Bootstrap number of users per segment
+# key here is that the bootstrapping occurs in classifications_data_fill() to minimise number of times we have to go into mongoDB
+# YET TO BE IMPLEMENTED
+
+
+
+
+# VARIOUS PLOTS
+# plot_weighted_vs_unweighted_stain(cores)
+# plot_user_vs_expert(cores)
 
 # close the connection to local mongoDB
 pymongo_connection_close()
