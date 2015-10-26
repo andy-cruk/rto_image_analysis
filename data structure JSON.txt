@@ -7,16 +7,16 @@ For RtO there are two databases, each with many fields
 		classification_count 	how many responses it has received
 		metadata.id_no 			core the segment belongs to
 		metadata.stain_type		antibody (this one is used by Janette)
+		metadata.answer_counts	provides overview of frequency of answers to each question - if answer is never given then field is not present
 	========USELESS FIELDS (for now)========
 		group 					dictionary same across all samples from the same antibody
 		group.name 				antibody
-		metadata.answer_counts	provides overview of frequency of answers to each question, but has varying number of fields and not all possible answers are represented; not used by Janette
 		random					?
 		
 		
 	classifications - One entry for each time a user answered up to 5 questions for a segment. Approx. 3.9m entries
 	========USEFUL FIELDS========
-		subject_ids[0]			unique segment ID; links to subjects["_id"][0]
+		subject_ids[0]			unique subject ID; links to subjects["_id"][0]
 		annotations[0]["a-1"]	{1: yes cancer, 2: no cancer}
 		annotations[1]["a-2"]	{0: no cancer, 1: no staining, 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}
 		annotations[2]["a-3"]	{0: no cancer, 1: weak staining, 2: medium, 3: strong}
