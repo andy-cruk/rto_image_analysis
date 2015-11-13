@@ -18,6 +18,7 @@ import time
 import numpy as np
 import os.path
 import matplotlib.pyplot as plt
+from bson.objectid import ObjectId
 desired_width = 320
 pd.set_option('display.width', desired_width)
 
@@ -41,7 +42,7 @@ filterSubjects = {"$and": [
 # save file for scores
 classificationsDataframeFn = "classifications_dataframe_" + stain + ".pkl"  # will store the pandas dataframe created from all the classifications; file will load if the file exists already to prevent another 30 to 60 min of processing.
 # load GS data
-coresGS = pd.read_excel(stain+"_GS.xlsx")
+coresGS = pd.read_excel("GS_"+stain+".xlsx")
 
 ########### FUNCTION DEFINITIONS
 def pymongo_connection_open():
@@ -275,7 +276,7 @@ def core_dataframe_add_expert_scores(cores):
     # % Positive
     # Intensity Score
     # SQS
-    coresGS = pd.read_excel(stain+"_GS.xlsx")
+    coresGS = pd.read_excel("GS_" + stain + ".xlsx")
     # add expert columns to dataframe
     cores.insert(len(cores.columns),"expProp",np.nan)
     cores.insert(len(cores.columns),"expIntensity",np.nan)
