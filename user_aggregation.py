@@ -25,11 +25,11 @@ pd.set_option('display.width', desired_width)
 
 
 # USER OPTIONS
-stain = "p21"  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21"
+stain = "MRE11"  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21"
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 # following not implemented:
-numberOfUsersPerSubject = np.array([2,4,6,10,0]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
-samplesPerNumberOfUsers = 25       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
+samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
 
 
@@ -190,12 +190,12 @@ def plot_user_vs_expert(cores):
     :param cores: pandas dataframe
     :return: None
     """
+    rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive = user_vs_expert_rho(cores)
     plt.subplot(3,1,1)
     plt.scatter(cores.expProp,cores.aggregatePropWeighted)
     plt.xlabel("expert")
     plt.ylabel("user")
-    rho,pval = s.spearmanr(cores.expProp,cores.aggregatePropWeighted)
-    plt.title("proportion stained, Spearman r = "+'{0:.2f}'.format(rho))
+    plt.title("proportion stained, Spearman r = "+'{0:.2f}'.format(rhoProp))
     plt.gca().set_aspect('equal', adjustable='box')
     plt.tight_layout(2)
 
@@ -203,16 +203,14 @@ def plot_user_vs_expert(cores):
     plt.scatter(cores.expIntensity,cores.aggregateIntensityWeighted)
     plt.xlabel("expert")
     plt.ylabel("user")
-    rho,pval = s.spearmanr(cores.expIntensity,cores.aggregateIntensityWeighted)
-    plt.title("intensity stain, Spearman r = "+'{0:.2f}'.format(rho))
+    plt.title("intensity stain, Spearman r = "+'{0:.2f}'.format(rhoIntensity))
     plt.gca().set_aspect('equal', adjustable='box')
 
     plt.subplot(3,1,3)
-    plt.scatter(cores.expSQS,cores.aggregateIntensityWeighted*cores.aggregatePropWeighted)
+    plt.scatter(cores.expSQS,cores.aggregateSQS)
     plt.xlabel("expert")
     plt.ylabel("user")
-    rho,pval = s.spearmanr(cores.expSQS,cores.aggregateIntensityWeighted*cores.aggregatePropWeighted)
-    plt.title("combined scores, Spearman r = "+'{0:.2f}'.format(rho))
+    plt.title("combined scores, Spearman r = "+'{0:.2f}'.format(rhoSQS))
     plt.gca().set_aspect('equal', adjustable='box')
 
     plt.show()
@@ -401,7 +399,7 @@ cores = core_dataframe_add_expert_scores(cores)
 
 # VARIOUS PLOTS
 # plot_weighted_vs_unweighted_stain(cores)
-# plot_user_vs_expert(cores)
+plot_user_vs_expert(cores)
 
 # close the connection to local mongoDB
 pymongo_connection_close()
