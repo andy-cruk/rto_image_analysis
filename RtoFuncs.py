@@ -1,4 +1,4 @@
-'''Functions to analyse RtO data
+'''Functions to analyse RtO data - does about the same as user_aggregation but should be a lot faster for sampling subsets of users.
 Assumes the following number of correlations:
 The correlations between expert and citizens that are returned are, in order of columns:
         0  Proportion as %                     Pearson
