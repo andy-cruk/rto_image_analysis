@@ -7,8 +7,10 @@
 	mongod --install --dbpath <your database path, e.g. D:\Data\mongoDB> --logpath <wherever you created text file, e.g. C:\mongo.txt>
 	mongod --service
 - Restart your computer, it should have the server running in the background now. You can check this by starting Robomongo which should have no trouble connecting to your local 127.0.0.1 server (download here: http://robomongo.org/)
+- get the RtO json file by 1) asking Sarah to give you a download link for a .gz file; 2) unzip that gz file to get a file without extension; 3) unzip that again and you get 3 json files;
 - Import your json file(s). The database you created earlier contains its own databases, and these contain collections. For example, I have a database called RTO_20150929 (date I downloaded the data), which collections 'subjects' and 'classifications'.
-	mongoimport -db <name of database> -collection <name of collection> -file <path to your json, ending in .json>
+	mongoimport --db <name of database> --collection <name of collection> --file <path to your json, ending in .json>
+    mongoimport --db RTO_20151209 --collection classifications --file D:\Data\CitSci\RtO\20151209\hard_cell_classifications.json
 - Now add all necessary collections to your database
 
 In pyCharm you can do things like:
