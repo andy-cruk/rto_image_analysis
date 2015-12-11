@@ -18,25 +18,22 @@ import time
 import numpy as np
 import os.path
 import matplotlib.pyplot as plt
+import rto_mongodb_utils
 from bson.objectid import ObjectId
 desired_width = 320
 pd.set_option('display.width', desired_width)
 
-
-
 # USER OPTIONS
-stain = "MRE11"  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21"
+stain = "rad50".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 # following not implemented:
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
-
-
-# set dictionary with filters to feed to mongoDB
+# set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
-    {"metadata.stain_type": stain},
-    {"classification_count": {"$gte": minClassifications}},
+    {"metadata.stain_type_lower": stain}, # this makes it case insensitive
+    {"classification_count.lower(": {"$gte": minClassifications}},
 ]}
 
 # save file for scores
@@ -50,8 +47,8 @@ def pymongo_connection_open():
     Change as appropriate if your database has a different name.
     """
     dbConnection = MongoClient("localhost", 27017)
-    subjectsCollection = dbConnection.RTO_20150929.subjects
-    classifCollection = dbConnection.RTO_20150929.classifications
+    subjectsCollection = dbConnection.RTO_20151209.subjects
+    classifCollection = dbConnection.RTO_20151209.classifications
     nSj = subjectsCollection.count()
     nCl = classifCollection.count()
     print 'Number of subjects:\t\t\t', nSj
@@ -212,6 +209,9 @@ def plot_user_vs_expert(cores):
     plt.ylabel("user")
     plt.title("combined scores, Spearman r = "+'{0:.2f}'.format(rhoSQS))
     plt.gca().set_aspect('equal', adjustable='box')
+
+    fig = plt.gcf()
+    fig.canvas.set_window_title(stain)
 
     plt.show()
 def cln_add_columns_aggregating_stain(cln):
