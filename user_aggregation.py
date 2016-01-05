@@ -24,7 +24,7 @@ desired_width = 200
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "p21".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 # following not implemented:
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
@@ -267,8 +267,10 @@ def core_dataframe_fill(cln):
         cores.loc[ix,"nSubjects"] = len(coreRowsInCln.index)
         cores.loc[ix,"aggregateSQS"] = cores.loc[ix,"aggregatePropWeighted"]*cores.loc[ix,"aggregateIntensityWeighted"]
         cores.loc[ix,"aggregateSQSadditive"] = percentage_to_category([cores.loc[ix,"aggregatePropWeighted"]]) + cores.loc[ix,"aggregateIntensityWeighted"]
-    return cores
+    # add category for aggregateWeighted
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted))
+    return cores
+
 def core_dataframe_add_expert_scores(cores):
     """add expert scores and return the updated cores dataframe
     """
@@ -368,7 +370,6 @@ cln = cln_add_columns_aggregating_stain(cln)
 cores = core_dataframe_fill(cln)
 # load and add expert scores, add to the cores dataframe
 cores = core_dataframe_add_expert_scores(cores)
-
 
 # ######### Bootstrap number of users per segment
 # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
