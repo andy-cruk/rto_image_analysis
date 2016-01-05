@@ -19,4 +19,4 @@ For RtO there are two databases, each with many fields
 		subject_ids[0]			unique subject ID; links to subjects["_id"][0]
 		annotations[0]["a-1"]	{1: yes cancer, 2: no cancer}
 		annotations[1]["a-2"]	{0: no cancer, 1: no staining, 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}
-		annotations[2]["a-3"]	{0: no cancer, 1: weak staining, 2: medium, 3: strong}
+		annotations[2]["a-3"]	{0: no cancer/staining, 1: weak staining, 2: medium, 3: strong}

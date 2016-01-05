@@ -20,11 +20,11 @@ import os.path
 import matplotlib.pyplot as plt
 import rto_mongodb_utils
 from bson.objectid import ObjectId
-desired_width = 320
+desired_width = 200
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "rad50".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 # following not implemented:
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
@@ -32,8 +32,8 @@ samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, h
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
-    {"metadata.stain_type_lower": stain}, # this makes it case insensitive
-    {"classification_count.lower(": {"$gte": minClassifications}},
+    {"metadata.stain_type_lower": stain},
+    {"classification_count": {"$gte": minClassifications}},
 ]}
 
 # save file for scores
@@ -57,26 +57,27 @@ def pymongo_connection_open():
 def pymongo_connection_close():
     """Close pymongo connection"""
     dbConnection.close()
-def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubject):
+def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubject,skipNonExpertClassifications=False):
     """Find all classifications for requested stain and aggregate responses for each subject
     This function saves and returns a pandas dataframe that has one row per subject (=segment) and columns that indicate proportion of all classifications given that answer.
     Note: proportion for different stain answers might not add up to 1 as people that say 'no cancer' still count towards classifications
     Note that you should have set an index in your mongoDB in the db.classifications.subject_ids field, otherwise this code will be agonisingly slow.
     """
     # first grab all the subjects that satisfy the filterSubjects criteria
-    subjectCursor = subjectsCollection.find(filter=filterSubjects, projection=("classification_count", "metadata.id_no"))
+    subjectCursor = subjectsCollection.find(filter=filterSubjects, projection=("classification_count", "metadata.id_no"),no_cursor_timeout=True)
     assert subjectCursor.count() > 0, "no records found for filter"
-    col = ("subjectID", "core", "nClassifications", "nCancer", "<25%Stain", "<50%Stain", "<75%Stain", "<95%Stain",
-           "<100%Stain", "stainWeak", "stainMedium", "stainStrong")
+    col = ("subjectID", "core", "nClassifications", "nCancer", "0%Stain", "<25%Stain", "<50%Stain", "<75%Stain", "<95%Stain",
+           "<100%Stain", "stainNone", "stainWeak", "stainMedium", "stainStrong")
     # set up dataframe that will store one row per segment, with classification scores. It will count occurrences in each of the buckets, which can later be divided by number of classifications
     cl = pd.DataFrame(data=None, columns=col)
     # initialise with strings and zeros; much slower than empty matrix
     # cl = pd.concat([pd.DataFrame(data=[["",""] for i in range(subjectCursor.count())],columns=col[0:2]),pd.DataFrame(np.zeros([subjectCursor.count(),len(col)-2]),columns=col[2:])],axis=1)
     clIx = 0  # dataframe index
     for sj in subjectCursor:  # loop over each entry in subjectCursor and aggregate ratings into dataframe
-        # check if this subject's core is in the expert list. If not, go to next one.
-        if not sj_in_expert_core(sj["metadata"]["id_no"]):
-            continue
+        if skipNonExpertClassifications:
+            # check if this subject's core is in the expert list. If not, go to next one.
+            if not sj_in_expert_core(sj["metadata"]["id_no"]):
+                continue
         # store the subject id in the pandas dataframe, initialising the row
         cl.loc[clIx, "subjectID"] = sj["_id"]
         # store what core it comes from
@@ -92,21 +93,24 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
             selectedSubjects = np.random.choice(len(clCursor),numberOfUsersPerSubject,replace=False)
         elif (numberOfUsersPerSubject > 0) and (numberOfUsersPerSubject > len(clCursor)): # if for this segment not enough users are available, select all
             selectedSubjects = np.arange(len(clCursor))
-        for iCl in clCursor[selectedSubjects]:  # loop over each classification in selectedSubjects, which is either all subjects or a randomly selected subset
+
+        for iCl in clCursor[selectedSubjects]:  # loop over each classification in selectedSubjects, which is either all classifications or a randomly selected subset
             cl.loc[clIx, "nClassifications"] += 1
             # cancer yes/no store in dataframe
             cancer = int(iCl["annotations"][0]["a-1"])
             if cancer == 1:  # if yes cancer
                 propStain = int(iCl["annotations"][1]["a-2"])           #retrieve proportion stained category
                 intensityStain = int(iCl["annotations"][2]["a-3"])      #retrieve intensity staining category
-                # check if this is an invalid entry because proportion and intensity should not be 0
-                if (propStain == 0 or intensityStain == 0):
+                # check if this is an invalid entry because proportion should not be 0 (given there's cancer, 1 would indicate no staining). Similarly, if propStain > 1 then intensityStain should be >0
+                if (propStain == 0) or (propStain>1 and intensityStain==0):
                     # reduce number of classifications by 1, effectively taking it out of the tally
                     cl.loc[clIx, "nClassifications"] -= 1
                     # continue the loop with next classification
                     continue
                 cl.loc[clIx, "nCancer"] += 1
-                if propStain == 2:
+                if propStain == 1:
+                    cl.loc[clIx, "0%Stain"] += 1
+                elif propStain == 2:
                     cl.loc[clIx, "<25%Stain"] += 1
                 elif propStain == 3:
                     cl.loc[clIx, "<50%Stain"] += 1
@@ -116,22 +120,20 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
                     cl.loc[clIx, "<95%Stain"] += 1
                 elif propStain == 6:
                     cl.loc[clIx, "<100%Stain"] += 1
-                else:  # should always be one of the above
-                    cl.loc[clIx, "errorProp"] += 1
                 # now do intensity
-                if intensityStain == 1:
+                if intensityStain == 0:
+                    cl.loc[clIx, "stainNone"] += 1
+                elif intensityStain == 1:
                     cl.loc[clIx, "stainWeak"] += 1
                 elif intensityStain == 2:
                     cl.loc[clIx, "stainMedium"] += 1
                 elif intensityStain == 3:
                     cl.loc[clIx, "stainStrong"] += 1
-                else:  # should always be one of the above
-                    cl.loc[clIx, "errorIntensity"] += 1
             elif cancer == 2:  # if no cancer
                 continue
         clIx += 1
-        # if clIx % 200 == 0:
-        #     print 100 * clIx / subjectCursor.count(), "%"
+        if clIx % 200 == 0:
+            print 100 * clIx / subjectCursor.count(), "%"
     # convert numbers to int (otherwise they're stored as object)
     cl = cl.convert_objects(convert_numeric=True)
     # normalise everything but nClassifications to value between 0 and 1
@@ -222,19 +224,19 @@ def cln_add_columns_aggregating_stain(cln):
     Intensity: mean across categories {1,2,3}
     Returns cln with 2 additional columns
     """
-    # define middle of each category. 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}
-    meanIntensities = np.array([13,37.5,62.5,85,97.5])
+    # define middle of each category. 1: no stain, 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}
+    meanIntensities = np.array([0,13,37.5,62.5,85,97.5])
     # this next one's a beast and should probably be spread out. The numerator takes the n * 5 matrix of stain proportions and dot multiplies it with the mean intensities; effectively
     # summing the products of proportion*meanIntensities. This is then divided by the proportion of people saying there was indeed cancer to correct
     # for the fact that we only want to include people that answered 'yes cancer'. For samples w/o anyone saying 'cancer', this results in a NaN
-    cln["aggregateProp"] = (cln.loc[:,"<25%Stain":"<100%Stain"].dot(meanIntensities)) / cln.nCancer
+    cln["aggregateProp"] = (cln.loc[:,"0%Stain":"<100%Stain"].dot(meanIntensities)) / cln.nCancer
     # same deal for intensity, but now we multiple simply by 1,2,3 for weak, medium, strong respectively.
-    cln["aggregateIntensity"] = (cln.loc[:,"stainWeak":"stainStrong"].dot(np.array([1,2,3]))) / cln.nCancer
+    cln["aggregateIntensity"] = (cln.loc[:,"stainNone":"stainStrong"].dot(np.array([0,1,2,3]))) / cln.nCancer
     return cln
 def core_dataframe_fill(cln):
     """takes a dataframe cln (row=subject,column=properties of subject such as responses); aggregates all subjects for a single core into a single row in dataframe "cores"
     A subject with 20 classifications is weighted equally to subject with 150 classifications.
-    For combining aggregrateProp and aggregateIntensity, the contributions from different subjects are weighted by the probability of users saying
+    For combining aggregratePropWeighted and aggregateIntensityWeighted, the contributions from different subjects are weighted by the probability of users saying
     the subject was cancer. For example, a subject with nCancer = 0.3 will be weighted at half that of a subject with nCancer = 0.6
 
     Some cores may not have segments in cln because cln only contains segments that belong to cores that we have GS for. These cores
@@ -266,6 +268,7 @@ def core_dataframe_fill(cln):
         cores.loc[ix,"aggregateSQS"] = cores.loc[ix,"aggregatePropWeighted"]*cores.loc[ix,"aggregateIntensityWeighted"]
         cores.loc[ix,"aggregateSQSadditive"] = percentage_to_category([cores.loc[ix,"aggregatePropWeighted"]]) + cores.loc[ix,"aggregateIntensityWeighted"]
     return cores
+    cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted))
 def core_dataframe_add_expert_scores(cores):
     """add expert scores and return the updated cores dataframe
     """
@@ -291,6 +294,8 @@ def core_dataframe_add_expert_scores(cores):
                 # break out of the coresGS for loop
                 break
     return cores
+def core_dataframe_add_corrected_SQS(cores):
+    pass
 def get_core_ids(cln):
     """retrieves a list of cores expressed as objects for a given set of classifications
     Input is a dataframe with classifications containing a column called "core"
@@ -353,7 +358,7 @@ subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
 
 # check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
 if os.path.isfile(classificationsDataframeFn) == False:
-    cln = classifications_dataframe_fill(numberOfUsersPerSubject=0)
+    cln = classifications_dataframe_fill(numberOfUsersPerSubject=0,skipNonExpertClassifications=False)
     classifications_dataframe_save(cln)
 else:  # dataframe available, load instead of fill
     cln = classifications_dataframe_load(fn=classificationsDataframeFn)
@@ -364,6 +369,7 @@ cores = core_dataframe_fill(cln)
 # load and add expert scores, add to the cores dataframe
 cores = core_dataframe_add_expert_scores(cores)
 
+
 # ######### Bootstrap number of users per segment
 # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
 # rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive"),index=numberOfUsersPerSubject)
@@ -373,7 +379,7 @@ cores = core_dataframe_add_expert_scores(cores)
 #     rho = np.zeros([samplesPerNumberOfUsers,4])
 #     for iB in range(samplesPerNumberOfUsers):
 #         t=time.time()
-#         cln = classifications_dataframe_fill(numberOfUsersPerSubject=N)
+#         cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
 #         cln = cln_add_columns_aggregating_stain(cln)
 #         cores = core_dataframe_fill(cln)
 #         cores = core_dataframe_add_expert_scores(cores)
@@ -399,8 +405,12 @@ cores = core_dataframe_add_expert_scores(cores)
 
 # VARIOUS PLOTS
 # plot_weighted_vs_unweighted_stain(cores)
-plot_user_vs_expert(cores)
+# plot_user_vs_expert(cores)
 
 # close the connection to local mongoDB
 pymongo_connection_close()
+
+# write cores data to excel sheet if all data was aggregated, for sending to researcher
+if numberOfUsersPerSubject==0:
+    cores.to_excel(excel_writer=("RtO_results_"+stain+".xlsx"))
 print "All done with script"
