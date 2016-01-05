@@ -13,13 +13,11 @@ rhoBoot     one row per number of users included in bootstrap; compares expert t
 __author__ = 'Peter'
 from pymongo import MongoClient
 import pandas as pd
-from scipy import stats as s
-import time
 import numpy as np
 import os.path
 import matplotlib.pyplot as plt
-import rto_mongodb_utils
-from bson.objectid import ObjectId
+from sklearn import linear_model
+
 desired_width = 200
 pd.set_option('display.width', desired_width)
 
@@ -242,7 +240,7 @@ def core_dataframe_fill(cln):
     Some cores may not have segments in cln because cln only contains segments that belong to cores that we have GS for. These cores
     will have nans as data.
     """
-    # initialise new DataFrame that will have one row per core AND THE SAME COLUMNS AS
+    # initialise new DataFrame that will have one row per core AND THE SAME COLUMNS AS classifications
     cores = pd.DataFrame(data=None,index=range(0,len(get_core_ids(cln))),columns=cln.columns,dtype="float64")
     # put in core IDs
     cores["core"]=get_core_ids(cln)
