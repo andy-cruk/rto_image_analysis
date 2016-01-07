@@ -17,6 +17,7 @@ import numpy as np
 import os.path
 import matplotlib.pyplot as plt
 from sklearn import linear_model
+from sklearn import cross_validation as cv
 
 desired_width = 200
 pd.set_option('display.width', desired_width)
@@ -268,7 +269,6 @@ def core_dataframe_fill(cln):
     # add category for aggregateWeighted
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted))
     return cores
-
 def core_dataframe_add_expert_scores(cores):
     """add expert scores and return the updated cores dataframe
     """
@@ -295,7 +295,54 @@ def core_dataframe_add_expert_scores(cores):
                 break
     return cores
 def core_dataframe_add_corrected_SQS(cores):
-    pass
+    """
+    This takes aggregateIntensityWeighted and aggregateProportionWeighted and corrects both of them individually through linear regression on expert scores.
+    Then multiplies the two to come to a corrected SQS score. Note that by correcting p and i independently with both intercept and slope, you get non-linear changes in SQS.
+    The cores for which we have expert data are corrected through 10-fold cross-validation; the data we do not have expert data for are corrected by estimating a single linear
+    model for all the cores with expert data
+    :param cores: pandas dataframe
+    :return: cores with aggregatedSQSCorrected, aggregatedPropCorrected, aggregateIntensityCorrected added
+    """
+    # take out nans
+    mask = np.array(~np.isnan(cores.expSQS).astype(bool))
+    # prepare for regression
+    Xprop = cores.aggregatePropWeighted[mask][:,np.newaxis]
+    Yprop = cores.expProp[mask][:,np.newaxis]
+    Xint = cores.aggregateIntensityWeighted[mask][:,np.newaxis]
+    Yint = cores.expIntensity[mask][:,np.newaxis]
+
+    nCores = len(cores.index)
+    PredProp = np.ones((nCores,1))*np.nan
+    PredInt = PredProp.copy()
+    # prepare the sklearn function
+    clf = linear_model.LinearRegression()
+    # use cross_val_predict to predict the values based on 10-fold cross-validation
+    PredProp[mask] = cv.cross_val_predict(clf,Xprop,Yprop,cv=10)
+    PredInt[mask] = cv.cross_val_predict(clf,Xint,Yint,cv=10)
+    # now predict new values for the cores we do not have expert data for
+    clf = linear_model.LinearRegression()
+    # fit expert data
+    clf.fit(X=Xprop,y=Yprop)
+    # apply relationship to other cores
+    PredProp[~mask] = clf.predict(cores.aggregatePropWeighted[~mask][:,np.newaxis])
+    # and again for proportion
+    clf = linear_model.LinearRegression()
+    clf.fit(X=Xint,y=Yint)
+    PredInt[~mask] = clf.predict(cores.aggregateIntensityWeighted[~mask][:,np.newaxis])
+
+    # filter any scores outside range
+    np.clip(PredProp,0,100,PredProp)
+    np.clip(PredInt,0,3,PredInt)
+    # calculate product score
+    PredSQS = PredProp*PredInt
+    # add predicted/adjusted scores to cores
+    cores["aggregatedPropCorrected"] = PredProp
+    cores["aggregateIntensityCorrected"] = PredInt
+    cores["aggregatedSQSCorrected"] = PredSQS
+
+
+    return cores
+
 def get_core_ids(cln):
     """retrieves a list of cores expressed as objects for a given set of classifications
     Input is a dataframe with classifications containing a column called "core"
@@ -368,6 +415,8 @@ cln = cln_add_columns_aggregating_stain(cln)
 cores = core_dataframe_fill(cln)
 # load and add expert scores, add to the cores dataframe
 cores = core_dataframe_add_expert_scores(cores)
+# add corrected scores
+cores = core_dataframe_add_corrected_SQS(cores)
 
 # ######### Bootstrap number of users per segment
 # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
@@ -411,5 +460,9 @@ pymongo_connection_close()
 
 # write cores data to excel sheet if all data was aggregated, for sending to researcher
 if numberOfUsersPerSubject==0:
-    cores.to_excel(excel_writer=("RtO_results_"+stain+".xlsx"))
+    cores.to_excel(excel_writer=("RtO_results_"+stain+"_full.xlsx"))
+    # write a clean version too
+    cores.loc[:,["core",'aggregatePropWeighted','aggregatePropWeightedCategory','aggregateIntensityWeighted',\
+                 'aggregateSQS','aggregatedSQSCorrected','aggregateSQSadditive','expProp','expIntensity','expSQS','expSQSadditive']].\
+        to_excel(excel_writer=("RtO_results_"+stain+"_clean.xlsx"),float_format='%.1f')
 print "All done with script"
