@@ -411,8 +411,17 @@ def percentage_to_category(percentages):
     :return: categ: same dimension as 'percentages', transformed to groups, float
     """
     # set up dataframe with thresholds and categories. Percentages are inclusive. So if you're a 38, you'll be assigned the category which has the first value above 38 (e.g. 50)
-    # transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,1,10,30,60,100]]).T,columns=("category","percentage")) # THIS IS ER
-    transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100]]).T,columns=("category","percentage")) # THIS IS RtO
+    if stain in ('mre11','test mre11','p21','tip60','rad50','53bp1','ctip_nuclear','hdac2','nbs1','rpa','mre11_cterm','dck_nuclear','mdm2'):
+        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100]]).T,columns=("category","percentage"))
+    elif stain in ('p53','ki67'):
+        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,50,75,100]]).T,columns=("category","percentage"))
+    elif stain in ('hdac4_membrane','ck56','ck20'):
+        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,65,95,100]]).T,columns=("category","percentage"))
+    elif stain in ('ctip_cytoplasm','hdac4_cytoplasm','dck_cytoplasm'):
+        raise Exception('unclear how to go from percentage to present/absent')
+    else:
+        raise Exception('transformation not specified for stain type')
+
     categ = np.zeros([len(percentages)])
     for iP in range(len(percentages)):
         # find lowest category that includes the percentage (e.g. 20 is smaller than 30, 60, and 100, so should fit in the 30 category)
