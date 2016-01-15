@@ -320,14 +320,14 @@ def core_dataframe_add_corrected_SQS(cores):
     # use cross_val_predict to predict the values based on 10-fold cross-validation
     PredProp[mask] = cv.cross_val_predict(clf,Xprop,Yprop,cv=10)
     PredInt[mask] = cv.cross_val_predict(clf,Xint,Yint,cv=10)
-    # apply relationship to other cores if they exist
+    # apply relationship to cores not done by experts only if they exist
     if np.sum(~mask)>0:
         # now predict new values for the cores we do not have expert data for
         clf = linear_model.LinearRegression()
         # fit expert data
         clf.fit(X=Xprop,y=Yprop)
         PredProp[~mask] = clf.predict(cores.aggregatePropWeighted[~mask][:,np.newaxis])
-        # and again for proportion
+        # and again for intensity
         clf = linear_model.LinearRegression()
         clf.fit(X=Xint,y=Yint)
         PredInt[~mask] = clf.predict(cores.aggregateIntensityWeighted[~mask][:,np.newaxis])
