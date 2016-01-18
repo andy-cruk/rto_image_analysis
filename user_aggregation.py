@@ -1,11 +1,10 @@
-'''Script will calculate classification accuracy as a function of how many users are included in aggregation
-Note that the method used here, which aggregates all classifications for each subject (=segment), is inefficient. Instead,
-all required data is stored in the 'subjects' database, from which # of responses can be read and then stochastically sampled
-to do any bootstrapping. That would be orders of magnitude faster.
+'''Script will collect users for each segment, all segments for a core, and expert scores for those cores. Stores results in excel and mongodb.
 
-So don't use this code as inspiration for your own.
+Code can also calculate Spearman correlations between expert and citizen science for varying number of citizen scientists/segment. However,
+the method used here, which aggregates all classifications for each subject (=segment), is inefficient. So this is an experimental
+feature that should not be used for heavy lifting.
 
-Nonetheless, this script generates a number of dataframes in order
+This script generates a number of dataframes in order
 cln         classifications: one row per subject (aggregated over users)
 cores       one row per core (aggregated over subjects)
 rhoBoot     one row per number of users included in bootstrap; compares expert to users
@@ -18,6 +17,7 @@ import os.path
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from sklearn import cross_validation as cv
+import time
 
 desired_width = 300
 pd.set_option('display.width', desired_width)
@@ -25,7 +25,6 @@ pd.set_option('display.width', desired_width)
 # USER OPTIONS
 stain = "p21".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
-# following not implemented:
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
@@ -424,10 +423,10 @@ def user_vs_expert_rho(cores):
     :param cores: pandas dataframe
     :return: rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive
     """
-    rhoProp =       cores['expProp'].corr(cores.aggregatePropWeighted,method='spearman')
-    rhoIntensity =  cores['expIntensity'].corr(cores.aggregateIntensityWeighted,method='spearman')
-    rhoSQS =        cores['expSQS'].corr(cores.aggregateSQS,method='spearman')
-    rhoSQSadditive = cores['expSQSadditive'].corr(cores.aggregateSQSadditive,method='spearman')
+    rhoProp =       cores['expProp'].corr(cores.aggregatePropCorrected,method='spearman')
+    rhoIntensity =  cores['expIntensity'].corr(cores.aggregateIntensityCorrected,method='spearman')
+    rhoSQS =        cores['expSQS'].corr(cores.aggregateSQSCorrected,method='spearman')
+    rhoSQSadditive = cores['expSQSadditive'].corr(cores.aggregateSQSCorrectedAdditive,method='spearman')
     return rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive
 def percentage_to_category(percentages):
     """Takes percentage stained and transforms to categories, useful for calculating pseudo-allred
@@ -491,7 +490,7 @@ def run_full_cores():
     core_dataframe_write_to_mongodb(cores)
     # write to excel
     core_dataframe_write_to_excel(cores)
-def run_bootstrap_cores():
+def run_bootstrap_rho():
     # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
     rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive"),index=numberOfUsersPerSubject)
     rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,4))
@@ -520,13 +519,12 @@ def run_bootstrap_cores():
         ix += 1
     rhoBoot.to_pickle(stain+"bootstrap.pkl")
     np.save(stain+"bootstrap_full.npy",rhoFull)
-    print rhoBoot
-    plot_rho(rhoBoot)
+    # save some summary stats to mongodb
 
 subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
 ########### FUNCTION EXECUTION
 run_full_cores() # will also generate the .pkl file with classifications
-# run_bootstrap_cores() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
+# run_bootstrap_rho() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
 
 # plot_weighted_vs_unweighted_stain(cores)
 # plot_user_vs_expert(cores)
