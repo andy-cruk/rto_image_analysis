@@ -294,6 +294,7 @@ def core_dataframe_add_expert_scores(cores):
                 cores.loc[ix,"expPropCategory"] = percentage_to_category([cores.loc[ix,"expProp"]])
                 # break out of the coresGS for loop
                 break
+    cores["hasExpert"] = ~np.isnan(cores.expSQS)
     return cores
 def core_dataframe_add_corrected_SQS(cores):
     """
@@ -346,6 +347,15 @@ def core_dataframe_add_corrected_SQS(cores):
 
 
     return cores
+def core_dataframe_split_core_id(cores):
+    """ Splits the 4 digit code and stain type into two columns called stain and coreID.
+    """
+    # split cores.core into two
+    foo = np.array([y.split() for foo,y in cores.core.iteritems()],str)
+    cores["stain"] = foo[:,1]
+    cores["coreID"] = foo[:,0]
+    cores = cores.convert_objects(convert_numeric=True)
+    return cores
 def core_dataframe_write_to_excel(cores):
     """
     Writes two excel sheets: one with the whole core dataframe and one with only relevant columns for Anne
@@ -378,6 +388,20 @@ def core_dataframe_write_to_excel(cores):
         'expSQSadditive':'expert Allred-like'
     },inplace=True)
     c.to_excel(excel_writer=("RtO_results_"+stain+"_clean.xlsx"),float_format='%.2f')
+def core_dataframe_write_to_mongodb(cores):
+    """ Inserts the records. Will wipe any existing cores on the stain
+
+    :param cores: pandas dataframe
+    :return:
+    """
+    con = MongoClient("localhost", 27017)
+    db = con.results.cores
+    # delete all entries for this stain
+    db.delete_many({'stain':stain})
+    # add all cores for this stain
+    result = db.insert_many(cores.to_dict('records'))
+    # assert all IDs were inserted
+    assert(len(result.inserted_ids)==len(cores.index))
 def get_core_ids(cln):
     """retrieves a list of cores expressed as objects for a given set of classifications
     Input is a dataframe with classifications containing a column called "core"
@@ -461,6 +485,10 @@ cores = core_dataframe_fill(cln)
 cores = core_dataframe_add_expert_scores(cores)
 # add corrected scores
 cores = core_dataframe_add_corrected_SQS(cores)
+# split coreID and stain
+cores = core_dataframe_split_core_id(cores)
+# write to mongodb cores database
+core_dataframe_write_to_mongodb(cores)
 # write to excel
 core_dataframe_write_to_excel(cores)
 
