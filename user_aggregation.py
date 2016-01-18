@@ -354,7 +354,7 @@ def core_dataframe_split_core_id(cores):
     foo = np.array([y.split() for foo,y in cores.core.iteritems()],str)
     cores["stain"] = foo[:,1]
     cores["coreID"] = foo[:,0]
-    cores = cores.convert_objects(convert_numeric=True)
+    cores["coreID"] = pd.to_numeric(cores["coreID"])
     return cores
 def core_dataframe_write_to_excel(cores):
     """
@@ -466,66 +466,68 @@ def plot_rho(rhoBoot):
     plt.title("number of users/segment vs. accuracy")
     plt.draw()
 
+def run_full_cores():
+    """
+    Will run a single pass through analysis, collecting classifications, forming dataframe, writing to excel and mongodb
+    :return:
+    """
+    # check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
+    if os.path.isfile(classificationsDataframeFn) == False:
+        cln = classifications_dataframe_fill(numberOfUsersPerSubject=0,skipNonExpertClassifications=False)
+        classifications_dataframe_save(cln)
+    else:  # dataframe available, load instead of fill
+        cln = classifications_dataframe_load(fn=classificationsDataframeFn)
+    # add columns to cln that indicates, for each subject, what the aggregate is of the multiple columns
+    cln = cln_add_columns_aggregating_stain(cln)
+    # aggregate data from multiple subjects into a single score for each core
+    cores = core_dataframe_fill(cln)
+    # load and add expert scores, add to the cores dataframe
+    cores = core_dataframe_add_expert_scores(cores)
+    # add corrected scores
+    cores = core_dataframe_add_corrected_SQS(cores)
+    # split coreID and stain
+    cores = core_dataframe_split_core_id(cores)
+    # write to mongodb cores database
+    core_dataframe_write_to_mongodb(cores)
+    # write to excel
+    core_dataframe_write_to_excel(cores)
+def run_bootstrap_cores():
+    # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
+    rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive"),index=numberOfUsersPerSubject)
+    rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,4))
+    ix = 0
+    for N in numberOfUsersPerSubject:
+        rho = np.zeros([samplesPerNumberOfUsers,4])
+        for iB in range(samplesPerNumberOfUsers):
+            t=time.time()
+            cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
+            cln = cln_add_columns_aggregating_stain(cln)
+            cores = core_dataframe_fill(cln)
+            cores = core_dataframe_add_expert_scores(cores)
+            rho[iB,:] = user_vs_expert_rho(cores)
+            print "doing",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time for this bootstrap:',(time.time()-t),'seconds'
+            if N==0: # if all users are included, no need to run this bootstrap more than once; the answer will be the same anyway.
+                print "breaking from bootstrap iteration, once is enough when including all participants"
+                # set other lines to nan, otherwise mean is taken across zeros
+                rho[1:,:] = np.nan
+                break
+        # store all rank correlations in 3D matrix to be able to calculate intervals
+        rhoFull[ix,:,:] = rho
+        rhoBoot.loc[N,:] = np.nanmean(rho,axis=0)
+        # save intermediate results
+        np.save(stain+"bootstrap_full.npy",rhoFull)
+        rhoBoot.to_pickle(stain+"bootstrap.pkl")
+        ix += 1
+    rhoBoot.to_pickle(stain+"bootstrap.pkl")
+    np.save(stain+"bootstrap_full.npy",rhoFull)
+    print rhoBoot
+    plot_rho(rhoBoot)
 
-########### FUNCTION EXECUTION
-# set up pymongo objects
 subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
+########### FUNCTION EXECUTION
+run_full_cores() # will also generate the .pkl file with classifications
+# run_bootstrap_cores() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
 
-# check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
-if os.path.isfile(classificationsDataframeFn) == False:
-    cln = classifications_dataframe_fill(numberOfUsersPerSubject=0,skipNonExpertClassifications=False)
-    classifications_dataframe_save(cln)
-else:  # dataframe available, load instead of fill
-    cln = classifications_dataframe_load(fn=classificationsDataframeFn)
-# add columns to cln that indicates, for each subject, what the aggregate is of the multiple columns
-cln = cln_add_columns_aggregating_stain(cln)
-# aggregate data from multiple subjects into a single score for each core
-cores = core_dataframe_fill(cln)
-# load and add expert scores, add to the cores dataframe
-cores = core_dataframe_add_expert_scores(cores)
-# add corrected scores
-cores = core_dataframe_add_corrected_SQS(cores)
-# split coreID and stain
-cores = core_dataframe_split_core_id(cores)
-# write to mongodb cores database
-core_dataframe_write_to_mongodb(cores)
-# write to excel
-core_dataframe_write_to_excel(cores)
-
-# ######### Bootstrap number of users per segment
-# # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
-# rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive"),index=numberOfUsersPerSubject)
-# rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,4))
-# ix = 0
-# for N in numberOfUsersPerSubject:
-#     rho = np.zeros([samplesPerNumberOfUsers,4])
-#     for iB in range(samplesPerNumberOfUsers):
-#         t=time.time()
-#         cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
-#         cln = cln_add_columns_aggregating_stain(cln)
-#         cores = core_dataframe_fill(cln)
-#         cores = core_dataframe_add_expert_scores(cores)
-#         rho[iB,:] = user_vs_expert_rho(cores)
-#         print "doing",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time for this bootstrap:',(time.time()-t),'seconds'
-#         if N==0: # if all users are included, no need to run this bootstrap more than once; the answer will be the same anyway.
-#             print "breaking from bootstrap iteration, once is enough when including all participants"
-#             # set other lines to nan, otherwise mean is taken across zeros
-#             rho[1:,:] = np.nan
-#             break
-#     # store all rank correlations in 3D matrix to be able to calculate intervals
-#     rhoFull[ix,:,:] = rho
-#     rhoBoot.loc[N,:] = np.nanmean(rho,axis=0)
-#     # save intermediate results
-#     np.save(stain+"bootstrap_full.npy",rhoFull)
-#     rhoBoot.to_pickle(stain+"bootstrap.pkl")
-#     ix += 1
-# rhoBoot.to_pickle(stain+"bootstrap.pkl")
-# np.save(stain+"bootstrap_full.npy",rhoFull)
-# print rhoBoot
-# plot_rho(rhoBoot)
-
-
-# VARIOUS PLOTS
 # plot_weighted_vs_unweighted_stain(cores)
 # plot_user_vs_expert(cores)
 
