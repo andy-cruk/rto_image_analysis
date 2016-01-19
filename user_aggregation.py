@@ -18,12 +18,13 @@ import matplotlib.pyplot as plt
 from sklearn import linear_model
 from sklearn import cross_validation as cv
 import time
+import re
 
 desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "p21".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
@@ -351,7 +352,8 @@ def core_dataframe_split_core_id(cores):
     """
     cores["stain"] = stain
     cores["stain"] = cores["stain"].astype(str)
-    cores["coreID"] = map(int,[y[0:4] for foo,y in cores.core.iteritems()])
+    # get the number from the string
+    cores["coreID"] = [int(re.search(r'\d+', x).group()) for foo,x in cores.core.iteritems()]
     return cores
 def core_dataframe_write_to_excel(cores):
     """
