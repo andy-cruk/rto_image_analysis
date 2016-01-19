@@ -78,8 +78,8 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
                 continue
         # store the subject id in the pandas dataframe, initialising the row
         cl.loc[clIx, "subjectID"] = sj["_id"]
-        # store what core it comes from
-        cl.loc[clIx, "core"] = sj["metadata"]["id_no"]
+        # store what core it comes from; for some reason some of these have a trailing underscore, so remove those
+        cl.loc[clIx, "core"] = sj["metadata"]["id_no"].rstrip('_')
         # initialise the rest of the row with zeros
         cl.iloc[clIx, 2:] = 0
         # collect all classifications from this particular segment and put in a numpy array for easy indexing later
@@ -349,11 +349,9 @@ def core_dataframe_add_corrected_SQS(cores):
 def core_dataframe_split_core_id(cores):
     """ Splits the 4 digit code and stain type into two columns called stain and coreID.
     """
-    # split cores.core into two
-    foo = np.array([y.split() for foo,y in cores.core.iteritems()],str)
-    cores["stain"] = foo[:,1]
-    cores["coreID"] = foo[:,0]
-    cores["coreID"] = pd.to_numeric(cores["coreID"])
+    cores["stain"] = stain
+    cores["stain"] = cores["stain"].astype(str)
+    cores["coreID"] = map(int,[y[0:4] for foo,y in cores.core.iteritems()])
     return cores
 def core_dataframe_write_to_excel(cores):
     """
@@ -466,10 +464,13 @@ def plot_rho(rhoBoot):
     plt.draw()
 
 def run_full_cores():
-    """
+    """ Main function of this script.
     Will run a single pass through analysis, collecting classifications, forming dataframe, writing to excel and mongodb
-    :return:
+    :return: cores
     """
+    # this code should only be ran when including all users
+    assert numberOfUsersPerSubject==0
+    assert samplesPerNumberOfUsers==1
     # check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
     if os.path.isfile(classificationsDataframeFn) == False:
         cln = classifications_dataframe_fill(numberOfUsersPerSubject=0,skipNonExpertClassifications=False)
@@ -480,16 +481,12 @@ def run_full_cores():
     cln = cln_add_columns_aggregating_stain(cln)
     # aggregate data from multiple subjects into a single score for each core
     cores = core_dataframe_fill(cln)
-    # load and add expert scores, add to the cores dataframe
     cores = core_dataframe_add_expert_scores(cores)
-    # add corrected scores
     cores = core_dataframe_add_corrected_SQS(cores)
-    # split coreID and stain
     cores = core_dataframe_split_core_id(cores)
-    # write to mongodb cores database
     core_dataframe_write_to_mongodb(cores)
-    # write to excel
     core_dataframe_write_to_excel(cores)
+    return cores,cln
 def run_bootstrap_rho():
     # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
     rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive"),index=numberOfUsersPerSubject)
@@ -522,8 +519,9 @@ def run_bootstrap_rho():
     # save some summary stats to mongodb
 
 subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
+
 ########### FUNCTION EXECUTION
-run_full_cores() # will also generate the .pkl file with classifications
+cores,cln = run_full_cores() # will also generate the .pkl file with classifications
 # run_bootstrap_rho() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
 
 # plot_weighted_vs_unweighted_stain(cores)
