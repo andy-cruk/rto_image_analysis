@@ -353,7 +353,7 @@ def core_dataframe_split_core_id(cores):
     cores["stain"] = stain
     cores["stain"] = cores["stain"].astype(str)
     # get the number from the string
-    cores["coreID"] = [int(re.search(r'\d+', x).group()) for foo,x in cores.core.iteritems()]
+    cores["coreID"] = [int(re.search(r'^\d+', x).group()) for foo,x in cores.core.iteritems()]
     return cores
 def core_dataframe_write_to_excel(cores):
     """
@@ -386,7 +386,9 @@ def core_dataframe_write_to_excel(cores):
         'expSQS':'expert H-score',
         'expSQSadditive':'expert Allred-like'
     },inplace=True)
-    c.to_excel(excel_writer=("RtO_results_"+stain+"_clean.xlsx"),float_format='%.2f')
+
+    c.to_excel(excel_writer=("RtO_results_"+stain+"_clean.xlsx"))
+    c.to_excel(excel_writer=("RtO_results_clean.xlsx"),sheet_name=stain)
 def core_dataframe_write_to_mongodb(cores):
     """ Inserts the records. Will wipe any existing cores on the stain
 
