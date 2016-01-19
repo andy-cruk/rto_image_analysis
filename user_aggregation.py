@@ -353,7 +353,7 @@ def core_dataframe_split_core_id(cores):
     cores["stain"] = stain
     cores["stain"] = cores["stain"].astype(str)
     # get the number from the string
-    cores["coreID"] = [int(re.search(r'^\d+', x).group()) for foo,x in cores.core.iteritems()]
+    cores["coreID"] = [int(re.search(r'\d+', x).group()) for foo,x in cores.core.iteritems()]
     return cores
 def core_dataframe_write_to_excel(cores):
     """
