@@ -19,12 +19,13 @@ from sklearn import linear_model
 from sklearn import cross_validation as cv
 import time
 import re
+from openpyxl import load_workbook
 
 desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "p21".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
@@ -361,6 +362,7 @@ def core_dataframe_write_to_excel(cores):
     :param cores:
     :return: None
     """
+    # write entire dataframe
     cores.to_excel(excel_writer=("RtO_results_"+stain+"_full.xlsx"))
     # write a clean version too
     c = cores.loc[:,["core",'aggregatePropWeighted','aggregatePropWeightedCategory','aggregateIntensityWeighted',\
@@ -386,9 +388,17 @@ def core_dataframe_write_to_excel(cores):
         'expSQS':'expert H-score',
         'expSQSadditive':'expert Allred-like'
     },inplace=True)
-
+    # write separate excel file for this stain
     c.to_excel(excel_writer=("RtO_results_"+stain+"_clean.xlsx"))
-    c.to_excel(excel_writer=("RtO_results_clean.xlsx"),sheet_name=stain)
+    # write into a single aggregate excel doc with multiple sheets.
+    # copied from http://stackoverflow.com/questions/20219254/how-to-write-to-an-existing-excel-file-without-overwriting-data
+    aggregateFile = "RtO_results_clean.xlsx"
+    book = load_workbook(aggregateFile)
+    writer = pd.ExcelWriter(aggregateFile, engine='openpyxl')
+    writer.book = book
+    writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+    c.to_excel(excel_writer=writer,sheet_name=stain)
+    writer.save()
 def core_dataframe_write_to_mongodb(cores):
     """ Inserts the records. Will wipe any existing cores on the stain
 
