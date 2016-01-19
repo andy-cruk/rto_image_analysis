@@ -1,3 +1,0 @@
-mongoexport -d RTO_20150107 -c core_aggregations -o ~/coremedians.csv -csv -fieldFile ~/coreexportfields.txt -q "{'stain_type' : 'MRE11'}"
-
-Note: you need to copy fields file to ~/ before running script
