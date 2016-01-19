@@ -25,7 +25,7 @@ desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "p21".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
@@ -37,9 +37,9 @@ filterSubjects = {"$and": [
 ]}
 
 # save file for scores
-classificationsDataframeFn = "classifications_dataframe_" + stain + ".pkl"  # will store the pandas dataframe created from all the classifications; file will load if the file exists already to prevent another 30 to 60 min of processing.
+classificationsDataframeFn = "results\classifications_dataframe_" + stain + ".pkl"  # will store the pandas dataframe created from all the classifications; file will load if the file exists already to prevent another 30 to 60 min of processing.
 # load GS data
-coresGS = pd.read_excel("GS_"+stain+".xlsx")
+coresGS = pd.read_excel("GS\GS_"+stain+".xlsx")
 
 ########### FUNCTION DEFINITIONS
 def pymongo_connection_open():
@@ -278,7 +278,6 @@ def core_dataframe_add_expert_scores(cores):
     # % Positive
     # Intensity Score
     # SQS
-    coresGS = pd.read_excel("GS_" + stain + ".xlsx")
     # add expert columns to dataframe
     cores.insert(len(cores.columns),"expProp",np.nan)
     cores.insert(len(cores.columns),"expIntensity",np.nan)
@@ -363,7 +362,7 @@ def core_dataframe_write_to_excel(cores):
     :return: None
     """
     # write entire dataframe
-    cores.to_excel(excel_writer=("RtO_results_"+stain+"_full.xlsx"))
+    cores.to_excel(excel_writer=("results\RtO_results_"+stain+"_full.xlsx"))
     # write a clean version too
     c = cores.loc[:,["core",'aggregatePropWeighted','aggregatePropWeightedCategory','aggregateIntensityWeighted',\
                  'aggregateSQS','aggregateSQSadditive',"aggregatePropCorrected","aggregatePropCorrectedCategory",\
@@ -389,10 +388,10 @@ def core_dataframe_write_to_excel(cores):
         'expSQSadditive':'expert Allred-like'
     },inplace=True)
     # write separate excel file for this stain
-    c.to_excel(excel_writer=("RtO_results_"+stain+"_clean.xlsx"))
+    c.to_excel(excel_writer=("results\RtO_results_"+stain+"_clean.xlsx"))
     # write into a single aggregate excel doc with multiple sheets.
     # copied from http://stackoverflow.com/questions/20219254/how-to-write-to-an-existing-excel-file-without-overwriting-data
-    aggregateFile = "RtO_results_clean.xlsx"
+    aggregateFile = "results\RtO_results_clean.xlsx"
     book = load_workbook(aggregateFile)
     writer = pd.ExcelWriter(aggregateFile, engine='openpyxl')
     writer.book = book
