@@ -49,10 +49,10 @@ def pymongo_connection_open():
     dbConnection = MongoClient("localhost", 27017)
     subjectsCollection = dbConnection.RTO_20151209.subjects
     classifCollection = dbConnection.RTO_20151209.classifications
-    nSj = subjectsCollection.count()
-    nCl = classifCollection.count()
-    print 'Number of subjects:\t\t\t', nSj
-    print 'Number of classifications:\t', nCl
+    # nSj = subjectsCollection.count()
+    # nCl = classifCollection.count()
+    # print 'Number of subjects:\t\t\t', nSj
+    # print 'Number of classifications:\t', nCl
     return subjectsCollection, classifCollection, dbConnection
 def pymongo_connection_close():
     """Close pymongo connection"""
@@ -531,16 +531,15 @@ def run_bootstrap_rho():
     np.save(stain+"bootstrap_full.npy",rhoFull)
     # save some summary stats to mongodb
 
-subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
-
 ########### FUNCTION EXECUTION
-cores,cln = run_full_cores() # will also generate the .pkl file with classifications
+# subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
+# cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
 # run_bootstrap_rho() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
 
 # plot_weighted_vs_unweighted_stain(cores)
 # plot_user_vs_expert(cores)
 
 # close the connection to local mongoDB
-pymongo_connection_close()
+# pymongo_connection_close()
 
 print "All done with script"
