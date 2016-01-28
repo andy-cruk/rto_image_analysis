@@ -11,20 +11,27 @@ def get_cores_collection():
     return (db,subjectsCollection)
 
 
-def load_cores_into_pandas(mongoFilter={},projection={'_id':False}):
+def load_cores_into_pandas(mongoFilter=None,projection=None):
     """ Build a pandas dataframe for all cores by first setting up connection to the collection through get_cores_collection,
     and then loading the requested cores based on mongoFilter.
     :param mongoFilter: filter directly passed to pymongo 'find'. e.g. {'stain':'p21'}
     :param projection: fields to be returned by the database query and therefore columns included in the pandas dataframe
     :return: a pandas dataframe with rows equal to number of documents found based on mongoFilter, and columns equal to number of fields requested based on projection
     """
+    # set defaults from non-mutable default values
+    if mongoFilter is None:
+        mongoFilter = {}
+    if projection is None:
+        projection = {'_id':False}
+
+    # get pymongo collection handle to cores database
     _,coll = get_cores_collection()
     results = coll.find(filter=mongoFilter,projection=projection)
     df = pd.DataFrame(list(results))
     return df
 
 
-def combine_cores_per_patient(df=load_cores_into_pandas(),function=np.nanmean(),stain='p21'):
+def combine_cores_per_patient(df=load_cores_into_pandas(),function=np.nanmean,stain='p21'):
     """ Takes a dataframe with core-level data, loads the lookup table to see what cores belong to each patient, and combines
     all attributes of those cores using a summarising function specified in the function call.
     :param df: pandas dataframe like the one returned by load_cores_into_pandas (cores*attributes)
