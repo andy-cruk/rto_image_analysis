@@ -10,6 +10,9 @@ from matplotlib import dates
 import datetime
 import numpy as np
 import pandas as pd
+from scipy import stats
+from scikits import bootstrap
+import quadratic_weighted_kappa as qwk
 
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
@@ -26,13 +29,100 @@ def plot_contribution_patterns():
     ax[0].hist([dates.date2num(y) for y in df.updated_at],bins=delta.days,cumulative=False,histtype='step',log=True)
     ax[1].plot(df.updated_at,counts)
     ax[1].xaxis.set_major_formatter(dates.DateFormatter('%m/%y'))
-    ax[1].set_xlim(left = min(df.updated_at),right=max(df.updated_at))
+    ax[1].xaxis.set_minor_locator(dates.MonthLocator)
+    ax[1].set_xlim(left = datetime.date(2014,9,15),right=max(df.updated_at))
     ax[0].set_ylabel('daily contributions')
     ax[1].set_ylabel('cumulative contributions')
     ax[1].set_xlabel('date (month/year)')
     plt.show()
     return f,ax
 
-f,ax = plot_contribution_patterns()
+
+def scatter_for_each_stain(xdat='expSQS',ydat='aggregateSQSCorrected',correlation='spearman'):
+    """ Takes two measures from the cores database and for each stain, scatters them against one another
+
+    """
+    df = load_cores_into_pandas()
+    # ndarray of strings
+    stains = df.stain.unique()
+    # assume 3 columns for subplot
+    size = np.ceil(np.sqrt(len(stains))).astype(int)
+    fig,axes = plt.subplots(nrows=size,ncols=size,sharex=True,sharey=True)
+    axes = axes.flatten()
+    for ix,stain in enumerate(stains):
+        # set current axis
+        ax = axes[ix]
+        # get rows for this stain
+        rows = (df.stain == stain) & (~np.isnan(df[xdat])) & (~np.isnan(df[ydat]))
+        x = df.loc[rows,xdat]
+        y = df.loc[rows,ydat]
+        ax.scatter(x,y,c='black')
+        ax.set_title(stain)
+        # add Spearman correlation
+        r = x.corr(y,method=correlation)
+        ax.annotate(correlation + ' r = '+"{:.2f}".format(r),textcoords='axes fraction',xy=(0.2,0.05),xytext=(0.2,0.05))
+        # increment counter
+        ix += 1
+    plt.show()
+    return fig,axes
+
+
+def scatter_performance_single_graph(xcorr=('expProp','aggregatePropCorrected'),ycorr=('expIntensity','aggregateIntensityCorrected'),xmethod=stats.spearmanr,ymethod=qwk.quadratic_weighted_kappa):
+    """ Create single scatterplot with one point per stain. Location on x is set by xmethod on the data in xcorr, ditto for y. Semi-flexible in terms of methods, though might
+    need some tweaking to get it to work given different variables returned by different methods (e.g. with/without p-value)
+     Should also plot 95% CI across x and y
+    """
+    df = load_cores_into_pandas()
+    # ndarray of strings
+    stains = df.stain.unique()
+    # loop over each stain and calculate value and 95% CI for x and y
+    r = np.array(np.zeros([len(stains),2]))*np.nan # initialise r: nStains * (x,y)
+    ci = np.array(np.zeros([len(stains),2,2]))*np.nan # initialise r: nStains * (x,y) * (lower,upper)
+    for ix,stain in enumerate(stains):
+        # get data to calculate correspondence for the x-axis
+        x = (df.stain == stain) & (~np.isnan(df[xcorr[0]])) & (~np.isnan(df[xcorr[1]]))
+        xx = df.loc[x,xcorr[0]]
+        xy = df.loc[x,xcorr[1]]
+        # now for y
+        y = (df.stain == stain) & (~np.isnan(df[ycorr[0]])) & (~np.isnan(df[ycorr[1]]))
+        yx = df.loc[y, ycorr[0]]
+        yy = df.loc[y, ycorr[1]]
+
+        # calculate mean and 95% CI for x
+        r[ix,0],_ = xmethod(xx, xy)
+        ci[ix,0,:] = bootstrap.ci((xx, xy), xmethod)[:,0]
+
+
+        # if weighted kappa is used then you need integers
+        if ymethod is qwk.quadratic_weighted_kappa:
+            yx = np.round(yx).astype(int)
+            yy = np.round(yy).astype(int)
+            r[ix,1] = ymethod(yx, yy)
+            ci[ix,1,:] = bootstrap.ci((yx, yy), ymethod)
+        else: #probably spearman, which returns a second argument (hence the ,_ and [:,0]
+            r[ix,1],_ = ymethod(yx, yy)
+            ci[ix,1,:] = bootstrap.ci((yx, yy), ymethod)[:,0]
+    f,ax = plt.subplots(1)
+    ax.errorbar(
+            r[:,0],
+            r[:,1],
+            xerr=np.abs((np.tile(r[:,0],[2,1]).T - ci[:,0,:])).T,
+            yerr=np.abs((np.tile(r[:,1],[2,1]).T - ci[:,1,:])).T,
+            fmt='.k'
+    )
+    for i,stain in enumerate(stains):
+        ax.annotate(stain,(r[i,0],r[i,1]))
+    ax.set_xlim(left=0, right=1)
+    ax.set_ylim(bottom=0, top=1)
+    ax.set_xlabel(xcorr[0]+' vs '+xcorr[1]+', '+xmethod.__name__)
+    ax.set_ylabel(ycorr[0]+' vs '+ycorr[1]+', '+ymethod.__name__)
+    plt.show()
+    return r,ci,f,ax
+
+
+
+# f,ax = plot_contribution_patterns()
+# f,ax = scatter_for_each_stain()
+r,ci,f,ax = scatter_performance_single_graph()
 
 print "done with core_level_plots.py"

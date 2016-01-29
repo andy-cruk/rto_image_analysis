@@ -542,4 +542,4 @@ def run_bootstrap_rho():
 # close the connection to local mongoDB
 # pymongo_connection_close()
 
-print "All done with script"
+print "Finished user_aggregation.py"
