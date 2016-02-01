@@ -39,6 +39,7 @@ def combine_cores_per_patient(df=load_cores_into_pandas(),function=np.nanmean,st
     :param stain: what stain to summarise for
     :return: a pandas dataframe with a column indicating patient ID (one row per patient) and all the same columns as df
     """
+    pass
     # load lookup table
 
     # set up df to hold patient-level data (make sure one column called 'patient' is correct as it might be used to join multiple dfs when comparing between stains

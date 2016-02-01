@@ -14,6 +14,7 @@ from scipy import stats
 from scikits import bootstrap
 import quadratic_weighted_kappa as qwk
 
+
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
         http://stackoverflow.com/questions/3034162/plotting-a-cumulative-graph-of-python-datetimes
@@ -40,8 +41,12 @@ def plot_contribution_patterns():
 
 def scatter_for_each_stain(xdat='expSQS',ydat='aggregateSQSCorrected',correlation='spearman'):
     """ Takes two measures from the cores database and for each stain, scatters them against one another
-
+    :param xdat: string pointing to column in cores dataset, laid out along x-axis
+    :param ydat: see xdat, but along y-axis
+    :param correlation: type of correlation to compute through pd.DataFrame.corr function ('spearman','pearson','kendall')
+    :return: f,ax handles
     """
+
     df = load_cores_into_pandas()
     # ndarray of strings
     stains = df.stain.unique()
@@ -68,10 +73,16 @@ def scatter_for_each_stain(xdat='expSQS',ydat='aggregateSQSCorrected',correlatio
 
 
 def scatter_performance_single_graph(xcorr=('expProp','aggregatePropCorrected'),ycorr=('expIntensity','aggregateIntensityCorrected'),xmethod=stats.spearmanr,ymethod=qwk.quadratic_weighted_kappa):
-    """ Create single scatterplot with one point per stain. Location on x is set by xmethod on the data in xcorr, ditto for y. Semi-flexible in terms of methods, though might
-    need some tweaking to get it to work given different variables returned by different methods (e.g. with/without p-value)
-     Should also plot 95% CI across x and y
+    """Create single scatterplot with one point per stain. Location on x is set by xmethod on the data in xcorr, ditto for y. Semi-flexible in terms of methods, though might
+    need some tweaking to get it to work given different variables returned by different methods (e.g. with/without p-value).
+    Plots 95% CI bootstrapped
+    :param xcorr: list containing two strings, each pointing to a column in the cores dataframe. Relationship between them will be calculated using the xmethod function, and displayed along x-axis
+    :param ycorr: see xcorr, but displayed along y.
+    :param xmethod: function that returns two variables, first one of interest (e.g. r,p for spearman)
+    :param ymethod: either quadratic_weighted_kappa that returns single value, or another function that returns like spearman (i.e. tuple with only first returned value of interest
+    :return: (r (nStain*{x,y}), ci (nStain*{x,y}*{LB,UB}), f, ax)
     """
+
     df = load_cores_into_pandas()
     # ndarray of strings
     stains = df.stain.unique()
@@ -88,7 +99,7 @@ def scatter_performance_single_graph(xcorr=('expProp','aggregatePropCorrected'),
         yx = df.loc[y, ycorr[0]]
         yy = df.loc[y, ycorr[1]]
 
-        # calculate mean and 95% CI for x
+        # calculate mean and 95% CI for x. Assumes a function like spearmanr which returns r first, p value second
         r[ix,0],_ = xmethod(xx, xy)
         ci[ix,0,:] = bootstrap.ci((xx, xy), xmethod)[:,0]
 
