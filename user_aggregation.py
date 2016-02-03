@@ -20,15 +20,17 @@ from sklearn import cross_validation as cv
 import time
 import re
 from openpyxl import load_workbook
+import datetime
+import quadratic_weighted_kappa as qwk
 
 desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
-numberOfUsersPerSubject = np.array(0) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
-samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+numberOfUsersPerSubject = np.array([4,5,6,7,8,9,10]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
+samplesPerNumberOfUsers = 100       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
@@ -93,7 +95,6 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
             selectedSubjects = np.random.choice(len(clCursor),numberOfUsersPerSubject,replace=False)
         elif (numberOfUsersPerSubject > 0) and (numberOfUsersPerSubject > len(clCursor)): # if for this segment not enough users are available, select all
             selectedSubjects = np.arange(len(clCursor))
-
         for iCl in clCursor[selectedSubjects]:  # loop over each classification in selectedSubjects, which is either all classifications or a randomly selected subset
             cl.loc[clIx, "nClassifications"] += 1
             # cancer yes/no store in dataframe
@@ -132,8 +133,8 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
             elif cancer == 2:  # if no cancer
                 continue
         clIx += 1
-        if clIx % 200 == 0:
-            print 100 * clIx / subjectCursor.count(), "%"
+        # if clIx % 200 == 0:
+        #     print 100 * clIx / subjectCursor.count(), "%"
     # convert numbers to int (otherwise they're stored as object)
     cl = cl.convert_objects(convert_numeric=True)
     # normalise everything but nClassifications to value between 0 and 1
@@ -260,13 +261,20 @@ def core_dataframe_fill(cln):
         coreRowsInCln = cln[cln["core"]==core.core]
         # note this takes the mean across all segments, including those that probably didn't have cancer.
         cores.loc[ix,"nClassifications":"aggregateIntensity"] = coreRowsInCln.loc[:,"nClassifications":"aggregateIntensity"].mean()
-        # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
-        cores.loc[ix,"aggregatePropWeighted"]       = (coreRowsInCln.aggregateProp      *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
-        cores.loc[ix,"aggregateIntensityWeighted"]  = (coreRowsInCln.aggregateIntensity *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
+        # if none of the subjects have anyone saying there's cancer, set IHC to 0. Otherwise you get nans and inf which will mess you up later (e.g. when correcting scores)
+        if coreRowsInCln.nCancer.sum() < np.finfo(float).eps: # should not do ==0.0 for float, so test for smaller than epsilon
+            print "no segment had any cancer indicated; setting all IHC to 0"
+            # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
+            cores.loc[ix,("aggregatePropWeighted","aggregateIntensityWeighted","aggregateSQS","aggregateSQSadditive")] = 0
+        else:
+            # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
+            cores.loc[ix,"aggregatePropWeighted"]       = (coreRowsInCln.aggregateProp      *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
+            cores.loc[ix,"aggregateIntensityWeighted"]  = (coreRowsInCln.aggregateIntensity *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
+            cores.loc[ix,"aggregateSQS"] = cores.loc[ix,"aggregatePropWeighted"]*cores.loc[ix,"aggregateIntensityWeighted"]
+            cores.loc[ix,"aggregateSQSadditive"] = percentage_to_category([cores.loc[ix,"aggregatePropWeighted"]]) + cores.loc[ix,"aggregateIntensityWeighted"]
         # store how many subjects were included for the core
         cores.loc[ix,"nSubjects"] = len(coreRowsInCln.index)
-        cores.loc[ix,"aggregateSQS"] = cores.loc[ix,"aggregatePropWeighted"]*cores.loc[ix,"aggregateIntensityWeighted"]
-        cores.loc[ix,"aggregateSQSadditive"] = percentage_to_category([cores.loc[ix,"aggregatePropWeighted"]]) + cores.loc[ix,"aggregateIntensityWeighted"]
+
     # add category for aggregateWeighted
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted))
     return cores
@@ -412,6 +420,66 @@ def core_dataframe_write_to_mongodb(cores):
     result = db.insert_many(cores.to_dict('records'))
     # assert all IDs were inserted
     assert(len(result.inserted_ids)==len(cores.index))
+def write_bootstrap_to_mongodb(rhoFull):
+    """ Write results from bootstrapping to mongodb collection called 'full_bootstrap' under database 'results'
+    Each entry in that collection is keyed on stain AND numberOfUsersPerSubject.
+    :param rhoFull: nparray with dimensions (len(numberOfUsersPerSubject),samplesPerNumberOfUsers,{rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive})
+    :return: None
+    """
+    # set up connection to collection
+    con = MongoClient("localhost", 27017)
+    db = con.results.full_bootstrap
+    # loop over each numberOfUsersPerSubject and write to database
+    for i,N in enumerate(numberOfUsersPerSubject):
+        # isolate 2D matrix for this number of users included in aggregate
+        mat = np.squeeze(rhoFull[i,:,:])
+        # upsert the information
+        result = db.update_one(
+            {'stain':stain,'nClassifications':N}, # the document to update
+            update={"$set":{
+                'stain':stain,
+                'nClassifications':N,
+                'nSamples':samplesPerNumberOfUsers,
+                'rhoProp_mean':np.mean(mat[:,0]),
+                'rhoProp_median':np.median(mat[:,0]),
+                'rhoProp_CI95_lower':np.percentile(mat[:,0],2.5),
+                'rhoProp_CI95_upper':np.percentile(mat[:,0],97.5),
+                'rhoIntensity_mean':np.mean(mat[:,1]),
+                'rhoIntensity_median':np.median(mat[:,1]),
+                'rhoIntensity_CI95_lower':np.percentile(mat[:,1],2.5),
+                'rhoIntensity_CI95_upper':np.percentile(mat[:,1],97.5),
+                'rhoHscore_mean':np.mean(mat[:,2]),
+                'rhoHscore_median':np.median(mat[:,2]),
+                'rhoHscore_CI95_lower':np.percentile(mat[:,2],2.5),
+                'rhoHscore_CI95_upper':np.percentile(mat[:,2],97.5),
+                'rhoAllred_mean':np.mean(mat[:,3]),
+                'rhoAllred_median':np.median(mat[:,3]),
+                'rhoAllred_CI95_lower':np.percentile(mat[:,3],2.5),
+                'rhoAllred_CI95_upper':np.percentile(mat[:,3],97.5),
+                'last_modified':datetime.datetime.utcnow()
+            }},
+            upsert=True # if entry doesn't exist, create it
+        )
+def write_bootstrap_single_to_mongodb(dat,N):
+    """ Takes a series of correlation values and writes them to mongodb
+
+    :param dat: 1D array of values; see user_vs_expert_rho output
+    :param N: number of users used to calculate aggregate
+    :return:
+    """
+    con = MongoClient("localhost", 27017)
+    db = con.results.bootstraps
+    result = db.insert_one({
+                'stain':stain,
+                'nUsersPerSubject':N,
+                'rhoProp':dat[0],
+                'rhoIntensity':dat[1],
+                'Hscore':dat[2],
+                'Allred':dat[3],
+                'qwkIntensity':dat[4],
+                'last_modified':datetime.datetime.utcnow()
+            }
+        )
 def get_core_ids(cln):
     """retrieves a list of cores expressed as objects for a given set of classifications
     Input is a dataframe with classifications containing a column called "core"
@@ -429,16 +497,18 @@ def normalise_dataframe_by_ix(df,divideByColumn,columnsToDivide):
     # perform the division only for those columns requested
     return df2.iloc[:,columnsToDivide].div(df2.iloc[:,divideByColumn],axis="index")
 def user_vs_expert_rho(cores):
-    """Calculate Spearman rank correlation between expert and users
+    """Calculate Spearman rank correlation between expert and users and quadratic weighted kappa for intensity
     The function of scipy's spearmanr is undefined for nan so should use Panda's correlatin method instead, which only uses pairwise complete to compute r.
     :param cores: pandas dataframe
-    :return: rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive
+    :return: rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive,qwkIntensity
     """
-    rhoProp =       cores['expProp'].corr(cores.aggregatePropCorrected,method='spearman')
-    rhoIntensity =  cores['expIntensity'].corr(cores.aggregateIntensityCorrected,method='spearman')
-    rhoSQS =        cores['expSQS'].corr(cores.aggregateSQSCorrected,method='spearman')
+    rhoProp = cores['expProp'].corr(cores.aggregatePropCorrected,method='spearman')
+    rhoIntensity = cores['expIntensity'].corr(cores.aggregateIntensityCorrected,method='spearman')
+    rhoSQS = cores['expSQS'].corr(cores.aggregateSQSCorrected,method='spearman')
     rhoSQSadditive = cores['expSQSadditive'].corr(cores.aggregateSQSCorrectedAdditive,method='spearman')
-    return rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive
+    qwkIntensity = qwk.quadratic_weighted_kappa(cores.expIntensity, cores.aggregateIntensityCorrected, min_rating=0, max_rating=3)
+
+    return rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive,qwkIntensity
 def percentage_to_category(percentages):
     """Takes percentage stained and transforms to categories, useful for calculating pseudo-allred
     :param percentages: numpy array or Pandas series with percentage cancer
@@ -476,6 +546,9 @@ def plot_rho(rhoBoot):
     plt.title("number of users/segment vs. accuracy")
     plt.draw()
 
+
+
+
 def run_full_cores():
     """ Main function of this script.
     Will run a single pass through analysis, collecting classifications, forming dataframe, writing to excel and mongodb
@@ -502,44 +575,47 @@ def run_full_cores():
     return cores,cln
 def run_bootstrap_rho():
     # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
-    rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive"),index=numberOfUsersPerSubject)
-    rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,4))
+    rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfUsersPerSubject)
+    rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,5))
     ix = 0
     for N in numberOfUsersPerSubject:
-        rho = np.zeros([samplesPerNumberOfUsers,4])
+        rho = np.zeros([samplesPerNumberOfUsers,5])
+        t = time.time()
         for iB in range(samplesPerNumberOfUsers):
-            t=time.time()
             cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
             cln = cln_add_columns_aggregating_stain(cln)
             cores = core_dataframe_fill(cln)
             cores = core_dataframe_add_expert_scores(cores)
+            cores = core_dataframe_add_corrected_SQS(cores)
             rho[iB,:] = user_vs_expert_rho(cores)
-            print "doing",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time for this bootstrap:',(time.time()-t),'seconds'
-            if N==0: # if all users are included, no need to run this bootstrap more than once; the answer will be the same anyway.
-                print "breaking from bootstrap iteration, once is enough when including all participants"
-                # set other lines to nan, otherwise mean is taken across zeros
-                rho[1:,:] = np.nan
-                break
+            print "including",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time for this bootstrap:',np.round(time.time()-t),'seconds'
+            # write this iteration to mongodb
+            write_bootstrap_single_to_mongodb(rho[iB,:],N)
         # store all rank correlations in 3D matrix to be able to calculate intervals
         rhoFull[ix,:,:] = rho
+        # store the 4 correlations averaged across all samples
         rhoBoot.loc[N,:] = np.nanmean(rho,axis=0)
         # save intermediate results
         np.save(stain+"bootstrap_full.npy",rhoFull)
         rhoBoot.to_pickle(stain+"bootstrap.pkl")
         ix += 1
-    rhoBoot.to_pickle(stain+"bootstrap.pkl")
-    np.save(stain+"bootstrap_full.npy",rhoFull)
-    # save some summary stats to mongodb
+    # write to database
+    write_bootstrap_to_mongodb(rhoFull)
 
 ########### FUNCTION EXECUTION
-# subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
-# cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
-# run_bootstrap_rho() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
+def main():
+    # cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
+    run_bootstrap_rho() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
 
-# plot_weighted_vs_unweighted_stain(cores)
-# plot_user_vs_expert(cores)
+    # plot_weighted_vs_unweighted_stain(cores)
+    # plot_user_vs_expert(cores)
 
-# close the connection to local mongoDB
-# pymongo_connection_close()
+    # close the connection to local mongoDB
+    pymongo_connection_close()
+    print "Finished user_aggregation.py"
 
-print "Finished user_aggregation.py"
+# only execute code if the code is being ran on its own
+if __name__ == "__main__":
+    subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
+    main()
+
