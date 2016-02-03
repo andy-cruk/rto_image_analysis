@@ -22,15 +22,16 @@ import re
 from openpyxl import load_workbook
 import datetime
 import quadratic_weighted_kappa as qwk
+import rto_mongodb_utils
 
 desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
-numberOfUsersPerSubject = np.array([4,5,6,7,8,9,10]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
-samplesPerNumberOfUsers = 100       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+numberOfUsersPerSubject = np.array([1,2,3,4,5]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
+samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
@@ -49,8 +50,8 @@ def pymongo_connection_open():
     Change as appropriate if your database has a different name.
     """
     dbConnection = MongoClient("localhost", 27017)
-    subjectsCollection = dbConnection.RTO_20151209.subjects
-    classifCollection = dbConnection.RTO_20151209.classifications
+    subjectsCollection = dbConnection[rto_mongodb_utils.currentDB].subjects
+    classifCollection = dbConnection[rto_mongodb_utils.currentDB].classifications
     # nSj = subjectsCollection.count()
     # nCl = classifCollection.count()
     # print 'Number of subjects:\t\t\t', nSj
@@ -65,30 +66,29 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
     Note: proportion for different stain answers might not add up to 1 as people that say 'no cancer' still count towards classifications
     Note that you should have set an index in your mongoDB in the db.classifications.subject_ids field, otherwise this code will be agonisingly slow.
     """
-    # first grab all the subjects that satisfy the filterSubjects criteria
-    subjectCursor = subjectsCollection.find(filter=filterSubjects, projection=("classification_count", "metadata.id_no"),no_cursor_timeout=True)
+    # first grab all the subjects that satisfy the filterSubjects criteria. Exclude those that do not have expert if requested
+    filterCopy = filterSubjects.copy()
+    if skipNonExpertClassifications:
+        filterCopy["hasExpert"] = True
+    subjectCursor = subjectsCollection.find(filter=filterCopy, projection=("classification_count", "metadata.id_no"),no_cursor_timeout=True)
+
     assert subjectCursor.count() > 0, "no records found for filter"
     col = ("subjectID", "core", "nClassifications", "nCancer", "0%Stain", "<25%Stain", "<50%Stain", "<75%Stain", "<95%Stain",
            "<100%Stain", "stainNone", "stainWeak", "stainMedium", "stainStrong")
     # set up dataframe that will store one row per segment, with classification scores. It will count occurrences in each of the buckets, which can later be divided by number of classifications
+    # Trying to initialise with sufficient rowsbased on timeit.timeit("df.loc[ix,:]=np.nan;ix+=1",setup='''import pandas as pd; import numpy as np; df = pd.DataFrame(data=np.zeros((1000,14)),columns=("subjectID", "core", "nClassifications", "nCancer", "0%Stain", "<25%Stain", "<50%Stain", "<75%Stain", "<95%Stain","<100%Stain", "stainNone", "stainWeak", "stainMedium", "stainStrong"));ix=0''',number=1000)
     cl = pd.DataFrame(data=None, columns=col)
-    # initialise with strings and zeros; much slower than empty matrix
-    # cl = pd.concat([pd.DataFrame(data=[["",""] for i in range(subjectCursor.count())],columns=col[0:2]),pd.DataFrame(np.zeros([subjectCursor.count(),len(col)-2]),columns=col[2:])],axis=1)
     clIx = 0  # dataframe index
     for sj in subjectCursor:  # loop over each entry in subjectCursor and aggregate ratings into dataframe
-        if skipNonExpertClassifications:
-            # check if this subject's core is in the expert list. If not, go to next one.
-            if not sj_in_expert_core(sj["metadata"]["id_no"]):
-                continue
         # store the subject id in the pandas dataframe, initialising the row
         cl.loc[clIx, "subjectID"] = sj["_id"]
-        # store what core it comes from; for some reason some of these have a trailing underscore, so remove those
-        cl.loc[clIx, "core"] = sj["metadata"]["id_no"].rstrip('_')
+        # store what core it comes from
+        cl.loc[clIx, "core"] = sj["metadata"]["id_no"]
         # initialise the rest of the row with zeros
         cl.iloc[clIx, 2:] = 0
         # collect all classifications from this particular segment and put in a numpy array for easy indexing later
         clCursor = np.array(list(classifCollection.find(filter={"subject_ids": [sj["_id"]]},projection=("annotations",))))
-        # select a random subset of items to to selected from the cursor, or select all if all subjects were requested or not sufficient users available
+        # select a random subset of items to be selected from the cursor, or select all if all users were requested or not sufficient users available
         if numberOfUsersPerSubject == 0: # all requested
             selectedSubjects = np.arange(len(clCursor))
         elif (numberOfUsersPerSubject > 0) and (numberOfUsersPerSubject <= len(clCursor)): # if number of users requested between 0 and max number of users for this subject
@@ -144,7 +144,7 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
     cln.loc[:,"nCancer":] = normalise_dataframe_by_ix(cl,cl.columns.get_loc("nClassifications"),range(cl.columns.get_loc("nCancer"),len(cl.columns)))
     # print "Done aggregating dataframe with classifications"
     return cln
-def sj_in_expert_core(coreID):
+def sj_in_expert_core(coreID,coresGS=coresGS):
     """
     Checks for a given core object ID whether it can be found in the expert scores. Used by classifications_dataframe_fill
     to save having to fill the cln dataframe with segments that do not belong to a core we have GS for.
@@ -605,7 +605,7 @@ def run_bootstrap_rho():
 ########### FUNCTION EXECUTION
 def main():
     # cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
-    run_bootstrap_rho() # requires run_full_cores to have run, otherwise .pkl file doesn't exist
+    run_bootstrap_rho() # requires run_full_cores to have run; requires rto_mongodb_utils.
 
     # plot_weighted_vs_unweighted_stain(cores)
     # plot_user_vs_expert(cores)

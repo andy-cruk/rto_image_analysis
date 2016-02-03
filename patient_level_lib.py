@@ -7,8 +7,8 @@ def get_cores_collection():
     :return: (pymongo database connection,reference to 'cores' collection)
     """
     db = MongoClient("localhost", 27017)
-    subjectsCollection = db.results.cores
-    return (db,subjectsCollection)
+    coresCollection = db.results.cores
+    return (db,coresCollection)
 
 
 def load_cores_into_pandas(mongoFilter=None,projection=None,limit=0):

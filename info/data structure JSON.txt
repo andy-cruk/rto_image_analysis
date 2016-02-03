@@ -1,16 +1,18 @@
 In the database each image segment is called a 'subject'. 
-For RtO there are two databases, each with many fields
+For RtO there are two databases, each with many fields.
+Comments on present/absent fields are based on Peter's database RTO_20151209
 
-	subjects 					contains 1 entry per segment, order of magnitude of 225k entries
+	subjects 					contains 1 entry per segment, order of magnitude of 225k entries. NOTE THAT THESE FIELDS CAN BE INCONSISTENT ACROSS ENTRIES
 	========USEFUL FIELDS========
 		_id 					unique segment ID; links to classifications["subject_ids"][0]
-		classification_count 	how many responses it has received
-		metadata.id_no 			core the segment belongs to
-		metadata.stain_type		antibody (this one is used by Janette)
+		classification_count 	how many responses it has received. Field in all documents
+		metadata.id_no 			core the segment belongs to, can be many formats. Not present in all documents (db.getCollection('subjects').distinct('metadata.id_no',{}))
+		metadata.stain_type		antibody; present in all fields except p53 (this one is used by Janette)
 		metadata.answer_counts	provides overview of frequency of answers to each question - if answer is never given then field is not present
 	========USELESS FIELDS (for now)========
 		group 					dictionary same across all samples from the same antibody
-		group.name 				antibody
+		group.name 				antibody; field in all documents
+		group_id                random string same across all samples from the same antibody
 		random					?
 		
 		
