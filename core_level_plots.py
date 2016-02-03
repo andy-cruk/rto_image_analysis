@@ -13,7 +13,7 @@ import pandas as pd
 from scipy import stats
 from scikits import bootstrap
 import quadratic_weighted_kappa as qwk
-
+from pymongo import MongoClient
 
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
@@ -66,8 +66,12 @@ def scatter_for_each_stain(xdat='expSQS',ydat='aggregateSQSCorrected',correlatio
         # add Spearman correlation
         r = x.corr(y,method=correlation)
         ax.annotate(correlation + ' r = '+"{:.2f}".format(r),textcoords='axes fraction',xy=(0.2,0.05),xytext=(0.2,0.05))
+        # add labels
+        ax.set_xlabel(xdat)
+        ax.set_ylabel(ydat)
         # increment counter
         ix += 1
+
     plt.show()
     return fig,axes
 
@@ -131,9 +135,50 @@ def scatter_performance_single_graph(xcorr=('expProp','aggregatePropCorrected'),
     return r,ci,f,ax
 
 
+def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={},measure='Hscore',nUsersPerSubject=range(1,5),CI=True,limit=100):
+    """
 
-# f,ax = plot_contribution_patterns()
-# f,ax = scatter_for_each_stain()
-r,ci,f,ax = scatter_performance_single_graph()
+    """
+    # load bootstraps
+    db = MongoClient("localhost", 27017)
+    coll = db.results.bootstraps
+    results = coll.find(filter=mongoFilter)
+    df = pd.DataFrame(list(results))
 
-print "done with core_level_plots.py"
+    # ndarray of strings
+    stains = df.stain.unique()
+    # set up figure
+    f,ax = plt.subplots(1)
+    # loop over each stain and plot
+    for iStain,stain in enumerate(stains):
+        # calculate mean and CI for each requested nUsersPerSubject for this stain
+        means = np.zeros(len(nUsersPerSubject))*np.nan
+        CI = np.zeros((2,len(nUsersPerSubject)))*np.nan
+        for iN,N in enumerate(nUsersPerSubject):
+            # get vector with bootstrapped data for this stain, number of users and measure
+            dat = df.loc[df.nUsersPerSubject==N & df.stain==stain,measure]
+            # limit the datapoints used, not in random fashion so it's replicable
+            dat = dat.iloc[:limit,:]
+            means[iN] = dat.mean
+            CI[0,iN] = np.percentile(dat,2.5)-means[iN]
+            CI[1,iN] = np.percentile(dat,97.5)-means[iN]
+        # plot this stain into graph with or without error bar
+        if CI:
+            ax.errorbar(x=nUsersPerSubject,y=means,yerr=np.abs(CI),label=stain)
+        else:
+            ax.plot(nUsersPerSubject,means,label=stain)
+    ax.set_xlabel('number of users included per segment')
+    ax.set_ylabel(measure)
+    ax.legend()
+
+    plt.show()
+    return f,ax
+
+
+if __name__ == "__main__":
+    # f,ax = plot_contribution_patterns()
+    # f,ax = scatter_for_each_stain()
+    # r,ci,f,ax = scatter_performance_single_graph()
+    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph()
+
+    print "done with core_level_plots.py"

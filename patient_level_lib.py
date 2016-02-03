@@ -11,11 +11,12 @@ def get_cores_collection():
     return (db,subjectsCollection)
 
 
-def load_cores_into_pandas(mongoFilter=None,projection=None):
+def load_cores_into_pandas(mongoFilter=None,projection=None,limit=0):
     """ Build a pandas dataframe for all cores by first setting up connection to the collection through get_cores_collection,
     and then loading the requested cores based on mongoFilter.
     :param mongoFilter: filter directly passed to pymongo 'find'. e.g. {'stain':'p21'}
     :param projection: fields to be returned by the database query and therefore columns included in the pandas dataframe
+    :param limit: limit number of documents returned; default is all (0)
     :return: a pandas dataframe with rows equal to number of documents found based on mongoFilter, and columns equal to number of fields requested based on projection
     """
     # set defaults from non-mutable default values
@@ -26,7 +27,7 @@ def load_cores_into_pandas(mongoFilter=None,projection=None):
 
     # get pymongo collection handle to cores database
     _,coll = get_cores_collection()
-    results = coll.find(filter=mongoFilter,projection=projection)
+    results = coll.find(filter=mongoFilter,projection=projection).limit(limit)
     df = pd.DataFrame(list(results))
     return df
 
