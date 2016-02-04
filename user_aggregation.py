@@ -30,7 +30,7 @@ pd.set_option('display.width', desired_width)
 # USER OPTIONS
 stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
-numberOfUsersPerSubject = np.array([1,2,3,4,5]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
+numberOfUsersPerSubject = np.array([4,5]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
@@ -263,7 +263,6 @@ def core_dataframe_fill(cln):
         cores.loc[ix,"nClassifications":"aggregateIntensity"] = coreRowsInCln.loc[:,"nClassifications":"aggregateIntensity"].mean()
         # if none of the subjects have anyone saying there's cancer, set IHC to 0. Otherwise you get nans and inf which will mess you up later (e.g. when correcting scores)
         if coreRowsInCln.nCancer.sum() < np.finfo(float).eps: # should not do ==0.0 for float, so test for smaller than epsilon
-            print "no segment had any cancer indicated; setting all IHC to 0"
             # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
             cores.loc[ix,("aggregatePropWeighted","aggregateIntensityWeighted","aggregateSQS","aggregateSQSadditive")] = 0
         else:
@@ -420,46 +419,6 @@ def core_dataframe_write_to_mongodb(cores):
     result = db.insert_many(cores.to_dict('records'))
     # assert all IDs were inserted
     assert(len(result.inserted_ids)==len(cores.index))
-def write_bootstrap_to_mongodb(rhoFull):
-    """ Write results from bootstrapping to mongodb collection called 'full_bootstrap' under database 'results'
-    Each entry in that collection is keyed on stain AND numberOfUsersPerSubject.
-    :param rhoFull: nparray with dimensions (len(numberOfUsersPerSubject),samplesPerNumberOfUsers,{rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive})
-    :return: None
-    """
-    # set up connection to collection
-    con = MongoClient("localhost", 27017)
-    db = con.results.full_bootstrap
-    # loop over each numberOfUsersPerSubject and write to database
-    for i,N in enumerate(numberOfUsersPerSubject):
-        # isolate 2D matrix for this number of users included in aggregate
-        mat = np.squeeze(rhoFull[i,:,:])
-        # upsert the information
-        result = db.update_one(
-            {'stain':stain,'nClassifications':N}, # the document to update
-            update={"$set":{
-                'stain':stain,
-                'nClassifications':N,
-                'nSamples':samplesPerNumberOfUsers,
-                'rhoProp_mean':np.mean(mat[:,0]),
-                'rhoProp_median':np.median(mat[:,0]),
-                'rhoProp_CI95_lower':np.percentile(mat[:,0],2.5),
-                'rhoProp_CI95_upper':np.percentile(mat[:,0],97.5),
-                'rhoIntensity_mean':np.mean(mat[:,1]),
-                'rhoIntensity_median':np.median(mat[:,1]),
-                'rhoIntensity_CI95_lower':np.percentile(mat[:,1],2.5),
-                'rhoIntensity_CI95_upper':np.percentile(mat[:,1],97.5),
-                'rhoHscore_mean':np.mean(mat[:,2]),
-                'rhoHscore_median':np.median(mat[:,2]),
-                'rhoHscore_CI95_lower':np.percentile(mat[:,2],2.5),
-                'rhoHscore_CI95_upper':np.percentile(mat[:,2],97.5),
-                'rhoAllred_mean':np.mean(mat[:,3]),
-                'rhoAllred_median':np.median(mat[:,3]),
-                'rhoAllred_CI95_lower':np.percentile(mat[:,3],2.5),
-                'rhoAllred_CI95_upper':np.percentile(mat[:,3],97.5),
-                'last_modified':datetime.datetime.utcnow()
-            }},
-            upsert=True # if entry doesn't exist, create it
-        )
 def write_bootstrap_single_to_mongodb(dat,N):
     """ Takes a series of correlation values and writes them to mongodb
 
@@ -477,7 +436,8 @@ def write_bootstrap_single_to_mongodb(dat,N):
                 'Hscore':dat[2],
                 'Allred':dat[3],
                 'qwkIntensity':dat[4],
-                'last_modified':datetime.datetime.utcnow()
+                'last_modified':datetime.datetime.utcnow(),
+                'database':rto_mongodb_utils.currentDB
             }
         )
 def get_core_ids(cln):
@@ -599,8 +559,6 @@ def run_bootstrap_rho():
         np.save(stain+"bootstrap_full.npy",rhoFull)
         rhoBoot.to_pickle(stain+"bootstrap.pkl")
         ix += 1
-    # write to database
-    write_bootstrap_to_mongodb(rhoFull)
 
 ########### FUNCTION EXECUTION
 def main():

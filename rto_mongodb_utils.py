@@ -7,7 +7,9 @@ import pandas as pd
 import pymongo
 import re
 
-currentDB = 'RTO_20151209'
+# set the name of the database on your local host to connect to
+currentDB = 'RTO_20160204'
+
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
     :param classifCollection:
@@ -26,10 +28,12 @@ def add_indices(classifCollection,subjectsCollection):
     subjectsCollection.create_index([("stain_type_lower",pymongo.ASCENDING),("classification_count",pymongo.ASCENDING)])
     subjectsCollection.create_index([("stain_type_lower",pymongo.ASCENDING),("classification_count",pymongo.ASCENDING),("hasExpert",pymongo.ASCENDING)])
 
+
 def add_lowercase_metadata_staintype(db):
     ''' Works on subject database
     :return: returns nothing
     '''
+    print "adding lowercase metadata stain type"
     for d in db.find({"metadata.stain_type":{"$exists": True}}):
         db.update({"_id":d["_id"]},{"$set":{"metadata.stain_type_lower":d["metadata"]["stain_type"].lower()}})
 
@@ -49,7 +53,7 @@ def add_whether_subject_is_part_of_core_with_expert_data(db):
     :param db: pymongo handle to a collection, in this case the subjects collection
     :return: nothing
     """
-    print 'adding indices to database'
+    print 'adding for each segment whether it is part of an expert core'
     # find stains with GS data
     f = os.listdir('GS')
     stains = [x.lstrip('GS_').rstrip('.xlsx') for x in f]
