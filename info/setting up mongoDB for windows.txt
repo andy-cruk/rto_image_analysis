@@ -1,11 +1,15 @@
 - Download and install the mongoDB client for windows from https://www.mongodb.org/downloads
-- Add the \bin directory wherever you installed mongoDB (e.g. C:\Program Files\MongoDB\Server\3.0\bin) to your windows PATH variable
+- Add the \bin directory wherever you installed mongoDB (e.g. C:\Program Files\MongoDB\Server\3.0\bin) to your windows PATH variable (http://www.computerhope.com/issues/ch000549.htm)
 - Create the folder where you want mongoDB to store its data (e.g. D:\Data\mongoDB)
 - Create a text file to refer to later, e.g. at C:\mongo.txt
 - Open a command line or powershell with admin rights (right-click, open as admin)
 - Run this command to get a server going
 	mongod --install --dbpath <your database path, e.g. D:\Data\mongoDB> --logpath <wherever you created text file, e.g. C:\mongo.txt>
+	mongod --install --dbpath D:\Data\mongoDB --logpath C:\mongo.txt
 	mongod --service
+	Alternatively to --service, you might have to use
+	net start MongoDB
+	Always check your logfile
 - Restart your computer, it should have the server running in the background now. You can check this by starting Robomongo which should have no trouble connecting to your local 127.0.0.1 server (download here: http://robomongo.org/)
 - get the RtO json file by 1) asking Sarah to give you a download link for a .gz file; 2) unzip that gz file to get a file without extension; 3) unzip that again and you get 3 json files;
 - Import your json file(s). The database you created earlier contains its own databases, and these contain collections. For example, I have a database called RTO_20150929 (date I downloaded the data), which collections 'subjects' and 'classifications'.
@@ -20,3 +24,19 @@ Count number of entries in JSON
 	handleToData.count()
 And close the connection at the end of your script, like you would close a handle to any file
 	dbConnection.close()
+
+
+To ever upgrade your mongodb
+- download latest msi https://www.mongodb.org/downloads
+- stop your mongod instance by opening a terminal in e.g. robomongo
+    use admin
+    db.shutdownServer()
+- install new mongodb into e.g. C:\Program Files\MongoDB\Server\<your version>\ (default)
+- change Windows PATH to new version
+- check your new version by typing into shell
+    mongod --version
+- now input the following (change dbpath to wherever your mongodb data is)
+    mongod --remove
+    mongod --install --dbpath D:\Data\mongoDB --logpath C:\mongo2.txt
+    net start MongoDB
+- now you're good to go

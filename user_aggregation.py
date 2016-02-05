@@ -28,10 +28,10 @@ desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
-numberOfUsersPerSubject = np.array([4,5]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
-samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
+samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
@@ -105,6 +105,7 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
                 # check if this is an invalid entry because proportion should not be 0 (given there's cancer, 1 would indicate no staining). Similarly, if propStain > 1 then intensityStain should be >0
                 if (propStain == 0) or (propStain>1 and intensityStain==0):
                     # reduce number of classifications by 1, effectively taking it out of the tally
+                    print (cancer,propStain,intensityStain)
                     cl.loc[clIx, "nClassifications"] -= 1
                     # continue the loop with next classification
                     continue
@@ -133,8 +134,6 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
             elif cancer == 2:  # if no cancer
                 continue
         clIx += 1
-        # if clIx % 200 == 0:
-        #     print 100 * clIx / subjectCursor.count(), "%"
     # convert numbers to int (otherwise they're stored as object)
     cl = cl.convert_objects(convert_numeric=True)
     # normalise everything but nClassifications to value between 0 and 1
@@ -142,7 +141,6 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
     cln = cl.copy()
     # normalise each of the columns starting at nCancer and all the ones to the right, using my own function def
     cln.loc[:,"nCancer":] = normalise_dataframe_by_ix(cl,cl.columns.get_loc("nClassifications"),range(cl.columns.get_loc("nCancer"),len(cl.columns)))
-    # print "Done aggregating dataframe with classifications"
     return cln
 def sj_in_expert_core(coreID,coresGS=coresGS):
     """
@@ -220,6 +218,7 @@ def plot_user_vs_expert(cores):
 def cln_add_columns_aggregating_stain(cln):
     """Add 2 columns that aggregate stain proportion and intensity answers into new columns
     Will disregard those that answered 'not cancer' and calculate aggregates based on only those people that said there is cancer.
+    Stores NaN for any segment where no one said cancer
     Aggregate is calculated by
     Proportion: transforming to numbers, taking mean, transforming back to categories
     Intensity: mean across categories {1,2,3}
@@ -229,10 +228,12 @@ def cln_add_columns_aggregating_stain(cln):
     meanIntensities = np.array([0,13,37.5,62.5,85,97.5])
     # this next one's a beast and should probably be spread out. The numerator takes the n * 5 matrix of stain proportions and dot multiplies it with the mean intensities; effectively
     # summing the products of proportion*meanIntensities. This is then divided by the proportion of people saying there was indeed cancer to correct
-    # for the fact that we only want to include people that answered 'yes cancer'. For samples w/o anyone saying 'cancer', this results in a NaN
+    # for the fact that we only want to include people that answered 'yes cancer'.
     cln["aggregateProp"] = (cln.loc[:,"0%Stain":"<100%Stain"].dot(meanIntensities)) / cln.nCancer
     # same deal for intensity, but now we multiple simply by 1,2,3 for weak, medium, strong respectively.
     cln["aggregateIntensity"] = (cln.loc[:,"stainNone":"stainStrong"].dot(np.array([0,1,2,3]))) / cln.nCancer
+    # For samples w/o anyone saying 'cancer', store a NaN
+    cln.loc[cln["aggregateProp"]<0.0001,('aggregateProp','aggregateIntensity')] = np.nan
     return cln
 def core_dataframe_fill(cln):
     """takes a dataframe cln (row=subject,column=properties of subject such as responses); aggregates all subjects for a single core into a single row in dataframe "cores"
@@ -264,7 +265,7 @@ def core_dataframe_fill(cln):
         # if none of the subjects have anyone saying there's cancer, set IHC to 0. Otherwise you get nans and inf which will mess you up later (e.g. when correcting scores)
         if coreRowsInCln.nCancer.sum() < np.finfo(float).eps: # should not do ==0.0 for float, so test for smaller than epsilon
             # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
-            cores.loc[ix,("aggregatePropWeighted","aggregateIntensityWeighted","aggregateSQS","aggregateSQSadditive")] = 0
+            cores.loc[ix,("aggregatePropWeighted","aggregateIntensityWeighted","aggregateSQS","aggregateSQSadditive")] = np.nan
         else:
             # add weighted aggregate scores; multiply each subject score by nCancer, then normalise by nCancer.sum()
             cores.loc[ix,"aggregatePropWeighted"]       = (coreRowsInCln.aggregateProp      *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
@@ -467,6 +468,10 @@ def user_vs_expert_rho(cores):
     rhoSQS = cores['expSQS'].corr(cores.aggregateSQSCorrected,method='spearman')
     rhoSQSadditive = cores['expSQSadditive'].corr(cores.aggregateSQSCorrectedAdditive,method='spearman')
     qwkIntensity = qwk.quadratic_weighted_kappa(cores.expIntensity, cores.aggregateIntensityCorrected, min_rating=0, max_rating=3)
+    #There's a value consistently showing up in these calculations - must be something wrong. Always -0.378085328319
+    if (rhoSQS < -0.35) & (rhoSQS > -0.40):
+        cores.to_pickle('WEIRD_rhoSQS.pkl')
+        raise Exception('check out the cores dataframe')
 
     return rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive,qwkIntensity
 def percentage_to_category(percentages):
@@ -562,8 +567,8 @@ def run_bootstrap_rho():
 
 ########### FUNCTION EXECUTION
 def main():
-    # cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
-    run_bootstrap_rho() # requires run_full_cores to have run; requires rto_mongodb_utils.
+    cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
+    # run_bootstrap_rho() # requires run_full_cores to have run; requires rto_mongodb_utils.
 
     # plot_weighted_vs_unweighted_stain(cores)
     # plot_user_vs_expert(cores)
@@ -574,6 +579,6 @@ def main():
 
 # only execute code if the code is being ran on its own
 if __name__ == "__main__":
+    # get these so they're available in each function's namespace without having to pass
     subjectsCollection, classifCollection, dbConnection = pymongo_connection_open()
     main()
-

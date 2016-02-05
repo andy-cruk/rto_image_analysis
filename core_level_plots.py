@@ -15,6 +15,7 @@ from scikits import bootstrap
 import quadratic_weighted_kappa as qwk
 from pymongo import MongoClient
 
+
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
         http://stackoverflow.com/questions/3034162/plotting-a-cumulative-graph-of-python-datetimes
@@ -23,15 +24,23 @@ def plot_contribution_patterns():
     """
     _,classifCollection,_ = pymongo_connection_open()
     pmCursor = classifCollection.find({},projection={'_id':False,'updated_at':True})
-    df = pd.DataFrame(list(pmCursor))
-    counts = np.arange(0,len(df.index))
+    # list comprehension to end up with a list of datetimes
+    dat = [x['updated_at'] for x in list(pmCursor)]
+    # sort the list
+    dat.sort()
+    counts = np.arange(0,len(dat))
     f,ax = plt.subplots(nrows=2,sharex=True)
-    delta = max(df.updated_at)-min(df.updated_at)
-    ax[0].hist([dates.date2num(y) for y in df.updated_at],bins=delta.days,cumulative=False,histtype='step',log=True)
-    ax[1].plot(df.updated_at,counts)
+    delta = max(dat)-min(dat)
+    ax[0].hist([dates.date2num(y) for y in dat],bins=delta.days,cumulative=False,histtype='step',log=True)
+    ax[1].plot(dat,counts)
     ax[1].xaxis.set_major_formatter(dates.DateFormatter('%m/%y'))
-    ax[1].xaxis.set_minor_locator(dates.MonthLocator)
-    ax[1].set_xlim(left = datetime.date(2014,9,15),right=max(df.updated_at))
+    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,3),bymonthday=1))
+    ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13),bymonthday=1))
+    ax[1].set_xlim(left = datetime.date(2014,10,01),right=max(dat))
+    ax[1].set_ylim(bottom = 10^2)
+    ax[0].minorticks_on()
+    ax[0].grid(b=True, axis='both', which='major', color='k', linestyle='-')
+    ax[0].grid(b=True, axis='y', which='minor', color='r', linestyle='--')
     ax[0].set_ylabel('daily contributions')
     ax[1].set_ylabel('cumulative contributions')
     ax[1].set_xlabel('date (month/year)')
@@ -39,7 +48,7 @@ def plot_contribution_patterns():
     return f,ax
 
 
-def scatter_for_each_stain(xdat='expSQS',ydat='aggregateSQSCorrected',correlation='spearman'):
+def scatter_for_each_stain(xdat='expSQS', ydat='aggregateSQSCorrected', correlation='spearman'):
     """ Takes two measures from the cores database and for each stain, scatters them against one another
     :param xdat: string pointing to column in cores dataset, laid out along x-axis
     :param ydat: see xdat, but along y-axis
@@ -76,7 +85,7 @@ def scatter_for_each_stain(xdat='expSQS',ydat='aggregateSQSCorrected',correlatio
     return fig,axes
 
 
-def scatter_performance_single_graph(xcorr=('expProp','aggregatePropCorrected'),ycorr=('expIntensity','aggregateIntensityCorrected'),xmethod=stats.spearmanr,ymethod=qwk.quadratic_weighted_kappa):
+def scatter_performance_single_graph(xcorr=('expProp', 'aggregatePropCorrected'), ycorr=('expIntensity', 'aggregateIntensityCorrected'), xmethod=stats.spearmanr, ymethod=qwk.quadratic_weighted_kappa):
     """Create single scatterplot with one point per stain. Location on x is set by xmethod on the data in xcorr, ditto for y. Semi-flexible in terms of methods, though might
     need some tweaking to get it to work given different variables returned by different methods (e.g. with/without p-value).
     Plots 95% CI bootstrapped
@@ -135,16 +144,15 @@ def scatter_performance_single_graph(xcorr=('expProp','aggregatePropCorrected'),
     return r,ci,f,ax
 
 
-def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={},measure='Hscore',nUsersPerSubject=range(1,5),CI=True,limit=100):
+def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={}, measure='Hscore', nUsersPerSubject=range(1,5), addCI=True):
     """
-
+    yet to implement how to make sure all datapoints are plotted using same number of bootstraps, and how to remove datapoints that have insufficient bootstraps.
     """
     # load bootstraps
     db = MongoClient("localhost", 27017)
     coll = db.results.bootstraps
     results = coll.find(filter=mongoFilter)
     df = pd.DataFrame(list(results))
-
     # ndarray of strings
     stains = df.stain.unique()
     # set up figure
@@ -156,14 +164,14 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
         CI = np.zeros((2,len(nUsersPerSubject)))*np.nan
         for iN,N in enumerate(nUsersPerSubject):
             # get vector with bootstrapped data for this stain, number of users and measure
-            dat = df.loc[df.nUsersPerSubject==N & df.stain==stain,measure]
-            # limit the datapoints used, not in random fashion so it's replicable
-            dat = dat.iloc[:limit,:]
-            means[iN] = dat.mean
+            # return iN,N,means,CI,df,stain,measure
+            dat = df.loc[(df.nUsersPerSubject==N) & (df.stain==stain),measure]
+            means[iN] = dat.mean()
             CI[0,iN] = np.percentile(dat,2.5)-means[iN]
             CI[1,iN] = np.percentile(dat,97.5)-means[iN]
+            print min(dat)
         # plot this stain into graph with or without error bar
-        if CI:
+        if addCI:
             ax.errorbar(x=nUsersPerSubject,y=means,yerr=np.abs(CI),label=stain)
         else:
             ax.plot(nUsersPerSubject,means,label=stain)
@@ -172,13 +180,13 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
     ax.legend()
 
     plt.show()
-    return f,ax
+    return f, ax
 
 
 if __name__ == "__main__":
-    # f,ax = plot_contribution_patterns()
-    # f,ax = scatter_for_each_stain()
-    # r,ci,f,ax = scatter_performance_single_graph()
-    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph()
+    # f, ax = plot_contribution_patterns()
+    # f, ax = scatter_for_each_stain()
+    # r, ci, f, ax = scatter_performance_single_graph()
+    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph({"stain":"mre11"})
 
     print "done with core_level_plots.py"
