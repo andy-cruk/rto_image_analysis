@@ -7,18 +7,19 @@ Comments on present/absent fields are based on Peter's database RTO_20151209
 		_id 					unique segment ID; links to classifications["subject_ids"][0]
 		classification_count 	how many responses it has received. Field in all documents
 		metadata.id_no 			core the segment belongs to, can be many formats. Not present in all documents (db.getCollection('subjects').distinct('metadata.id_no',{}))
-		metadata.stain_type		antibody; present in all fields except p53 (this one is used by Janette)
+		metadata.stain_type		antibody; present in all fields (this one is used by Janette). Note that for different kinds of stain of same type (e.g. MRE11 and MRE11new) will have identical metadata.stain_type db.getCollection('subjects').distinct("metadata.stain_type",{})
 		metadata.answer_counts	provides overview of frequency of answers to each question - if answer is never given then field is not present
 	========USELESS FIELDS (for now)========
 		group 					dictionary same across all samples from the same antibody
-		group.name 				antibody; field in all documents
+		group.name 				antibody; field in all documents, but not always correct (e.g. run db.getCollection('subjects').distinct("group.name",{"metadata.stain_type":"MRE11"}))
 		group_id                random string same across all samples from the same antibody
 		random					?
 		
 		
-	classifications - One entry for each time a user answered up to 5 questions for a segment. Approx. 3.9m entries
+	classifications - One entry for each time a user answered up to 5 questions for a segment. Approx. 3.9m entries.
+	This only holds for bladder cancer data; lung data had different question set
 	========USEFUL FIELDS========
 		subject_ids[0]			unique subject ID; links to subjects["_id"][0]
-		annotations[0]["a-1"]	{1: yes cancer, 2: no cancer}
-		annotations[1]["a-2"]	{0: no cancer, 1: no staining, 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}
+		annotations[0]["a-1"]	{1: yes cancer, 2: no cancer}. Note this is a string. Can be searched e.g. in mongodb find({"annotations.a-1":"1"})
+		annotations[1]["a-2"]	{0: no cancer, 1: no staining, 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}. Note categories may differ between stains, see info/RtO_proportion_stained_bins.xlsx
 		annotations[2]["a-3"]	{0: no cancer/staining, 1: weak staining, 2: medium, 3: strong}

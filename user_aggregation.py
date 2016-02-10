@@ -14,6 +14,7 @@ from pymongo import MongoClient
 import pandas as pd
 import numpy as np
 import os.path
+import os
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from sklearn import cross_validation as cv
@@ -28,10 +29,13 @@ desired_width = 300
 pd.set_option('display.width', desired_width)
 
 # USER OPTIONS
-stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+# additional/separate options for running run_full_cores_skip_segments()
+numberOfClassificationsPerCore = np.array([0])  # will X classifications per core. Set to zero to include all; give a range to test multiple numbers
+
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
@@ -39,10 +43,15 @@ filterSubjects = {"$and": [
     {"classification_count": {"$gte": minClassifications}},
 ]}
 
+# list all stain types we have GS for in a list
+f = os.listdir('GS')
+stains = [x.lstrip('GS_').rstrip('.xlsx') for x in f]
+
 # save file for scores
 classificationsDataframeFn = "results\classifications_dataframe_" + stain + ".pkl"  # will store the pandas dataframe created from all the classifications; file will load if the file exists already to prevent another 30 to 60 min of processing.
 # load GS data
 coresGS = pd.read_excel("GS\GS_"+stain+".xlsx")
+
 
 ########### FUNCTION DEFINITIONS
 def pymongo_connection_open():
@@ -142,6 +151,33 @@ def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubje
     # normalise each of the columns starting at nCancer and all the ones to the right, using my own function def
     cln.loc[:,"nCancer":] = normalise_dataframe_by_ix(cl,cl.columns.get_loc("nClassifications"),range(cl.columns.get_loc("nCancer"),len(cl.columns)))
     return cln
+def classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False):
+    """ This will look at the requested stain and grab all the classifications that correspond to it.
+    Returns this as a dataframe with sensible names for columns
+
+    :param skipNonExpertClassifications: bool indicating whether to only select classifications that were performed on a core with expert info
+    :return: a pandas dataframe, nClassifications*nColumns
+    """
+    # retrieve classifications, either including or excluding those on non-expert cores
+    if skipNonExpertClassifications:
+        clCursor = classifCollection.find({"stain_type_lower":stain, "hasExpert":True}, projection=('cancer','proportion','intensity','id_no'))
+    if ~skipNonExpertClassifications:
+        clCursor = classifCollection.find({"stain_type_lower":stain}, projection=('cancer','proportion','intensity','id_no'))
+    # check something was actually found
+    assert clCursor.count()>0
+    # dump data into dataframe. This can take a long time and requires a lot of memory
+    print "Putting",clCursor.count(),"classifications into dataframe..."
+    t = time.time()
+    cln = pd.DataFrame(list(clCursor))
+    print "... done. Time elapsed:",time.time()-t,'seconds'
+    # set cancer to True or False
+    cln.cancer = cln.cancer.apply(int) == 1
+    # add percentage stained
+    cln['aggregatePropWeighted'] = category_to_percentage(cln.proportion.apply(int)-1)
+    # rename columns to sensible descriptions that rest of the code understands
+    cln.rename(columns={'id_no': 'core', "_id": "subjectID", 'proportion': 'aggregatePropWeightedCategory', 'intensity': 'aggregateIntensityWeighted'},inplace=True)
+    cln = cln.convert_objects(convert_numeric=True)
+    return cln
 def sj_in_expert_core(coreID,coresGS=coresGS):
     """
     Checks for a given core object ID whether it can be found in the expert scores. Used by classifications_dataframe_fill
@@ -224,12 +260,11 @@ def cln_add_columns_aggregating_stain(cln):
     Intensity: mean across categories {1,2,3}
     Returns cln with 2 additional columns
     """
-    # define middle of each category. 1: no stain, 2: 1 to 25% of cancer cells stained, 3: 25 to 50%, 4: 50 to 75%, 5: 75 to 95%, 6: 95 to 100%}
-    meanIntensities = np.array([0,13,37.5,62.5,85,97.5])
+    _,intensities = percentage_to_category(None)
     # this next one's a beast and should probably be spread out. The numerator takes the n * 5 matrix of stain proportions and dot multiplies it with the mean intensities; effectively
-    # summing the products of proportion*meanIntensities. This is then divided by the proportion of people saying there was indeed cancer to correct
+    # summing the products of proportion*intensities. This is then divided by the proportion of people saying there was indeed cancer to correct
     # for the fact that we only want to include people that answered 'yes cancer'.
-    cln["aggregateProp"] = (cln.loc[:,"0%Stain":"<100%Stain"].dot(meanIntensities)) / cln.nCancer
+    cln["aggregateProp"] = (cln.loc[:,"0%Stain":"<100%Stain"].dot(np.array(intensities["percentage"]))) / cln.nCancer
     # same deal for intensity, but now we multiple simply by 1,2,3 for weak, medium, strong respectively.
     cln["aggregateIntensity"] = (cln.loc[:,"stainNone":"stainStrong"].dot(np.array([0,1,2,3]))) / cln.nCancer
     # For samples w/o anyone saying 'cancer', store a NaN
@@ -271,12 +306,50 @@ def core_dataframe_fill(cln):
             cores.loc[ix,"aggregatePropWeighted"]       = (coreRowsInCln.aggregateProp      *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
             cores.loc[ix,"aggregateIntensityWeighted"]  = (coreRowsInCln.aggregateIntensity *coreRowsInCln.nCancer).sum() / coreRowsInCln.nCancer.sum()
             cores.loc[ix,"aggregateSQS"] = cores.loc[ix,"aggregatePropWeighted"]*cores.loc[ix,"aggregateIntensityWeighted"]
-            cores.loc[ix,"aggregateSQSadditive"] = percentage_to_category([cores.loc[ix,"aggregatePropWeighted"]]) + cores.loc[ix,"aggregateIntensityWeighted"]
+            cores.loc[ix,"aggregateSQSadditive"] = percentage_to_category([cores.loc[ix,"aggregatePropWeighted"]])[0] + cores.loc[ix,"aggregateIntensityWeighted"]
         # store how many subjects were included for the core
         cores.loc[ix,"nSubjects"] = len(coreRowsInCln.index)
 
     # add category for aggregateWeighted
-    cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted))
+    cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted)[0])
+    return cores
+def cores_dataframe_fill_from_individual_classifications(cln,nCl=numberOfClassificationsPerCore[0]):
+    """
+    Takes a dataframe with classifications from classifications_dataframe_fill_individual_classifications() and
+    calculates scores for each core
+    :param cln: dataframe, see whatever is returned by classifications_dataframe_fill_individual_classifications()
+    :param nCl: number of classifications to include per core; set to 0 to include all. Cannot request more than are available
+    :return: df with nCores * {'aggregatePropWeighted','aggregateIntensityWeighted','aggregateSQS','aggregateSQSadditive','aggregatePropWeightedCategory'}
+    """
+    # get numpy array of core ID numbers, splitting off the stain type
+    coreID = cln.core.unique()
+    # initialise df with number of rows equal to number of cores
+    cores = pd.DataFrame(data=coreID,index=range(len(coreID)),columns=['core'])
+    # combine through a merge and mean
+    cores = cores.merge(cln,how='left',on='core')
+    coresNoCancer = cores[cores.cancer]
+    coresNoCancer = coresNoCancer.groupby(coresNoCancer.core).mean()
+    raise Exception("to sample, try using groupby().take or groupby().apply. Also see more methods http://pandas.pydata.org/pandas-docs/stable/generated/pandas.core.groupby.DataFrameGroupBy.take.html)")
+    # for each core in coreID
+    for iCore in range(len(coreID)):
+        isCurrentCore = cln.core == coreID[iCore]
+        cores.loc[iCore,'nClassificationsTotal'] = np.sum(isCurrentCore)
+        cores.loc[iCore,'nCancerOfAllClassifications'] = np.mean(cln[isCurrentCore]['cancer']-1)
+        if nCl == 0:
+            # select all classifications
+            sample = cln[isCurrentCore]
+        elif nCl > 0:
+            # select random set of classifications of this core
+            sample = cln[isCurrentCore].sample(n=nCl,replace=False,axis=0)
+        # throw out those that said no cancer (which would be 2)
+        sample = sample[sample.cancer == 1]
+        # calculate relevant scores. 'sample' contains a column 'proportion' which is value from 1 to 6.
+        # This should be 0 to 5 in Allred categories. These correspond to percentages in percentage_to_category()
+        cores.loc[iCore,'aggregatePropWeighted'] = category_to_percentage(sample["proportion"]-1).mean()
+        cores.loc[iCore,'aggregateIntensityWeighted'] = sample["intensity"].mean()
+    cores['aggregateSQS'] = cores.aggregatePropWeighted * cores.aggregateIntensityWeighted
+    cores['aggregateSQSadditive'] = percentage_to_category(cores.aggregatePropWeighted)[0] + cores.aggregateIntensityWeighted
+    cores['aggregatePropWeightedCategory'] = percentage_to_category(cores.aggregatePropWeighted)[0]
     return cores
 def core_dataframe_add_expert_scores(cores):
     """add expert scores and return the updated cores dataframe
@@ -298,8 +371,8 @@ def core_dataframe_add_expert_scores(cores):
             # if the current row in coresGS is the one that matches the row in cores, store and break
             if str(int(rowGS.loc["Core ID"])) in row.core:
                 cores.loc[ix,"expProp":"expSQS"] = np.array(rowGS["% Positive":"SQS"])
-                cores.loc[ix,"expSQSadditive"] = cores.loc[ix,"expIntensity"] + percentage_to_category([cores.loc[ix,"expProp"]])
-                cores.loc[ix,"expPropCategory"] = percentage_to_category([cores.loc[ix,"expProp"]])
+                cores.loc[ix,"expSQSadditive"] = cores.loc[ix,"expIntensity"] + percentage_to_category([cores.loc[ix,"expProp"]])[0]
+                cores.loc[ix,"expPropCategory"] = percentage_to_category([cores.loc[ix,"expProp"]])[0]
                 # break out of the coresGS for loop
                 break
     cores["hasExpert"] = ~np.isnan(cores.expSQS)
@@ -349,7 +422,7 @@ def core_dataframe_add_corrected_SQS(cores):
     # add predicted/adjusted scores to cores
     cores["aggregatePropCorrected"] = PredProp
     cores["aggregateIntensityCorrected"] = PredInt
-    cores["aggregatePropCorrectedCategory"] = percentage_to_category(cores["aggregatePropCorrected"])
+    cores["aggregatePropCorrectedCategory"] = percentage_to_category(cores["aggregatePropCorrected"])[0]
     cores["aggregateSQSCorrectedAdditive"] = cores["aggregateIntensityCorrected"] + cores["aggregatePropCorrectedCategory"]
     cores["aggregateSQSCorrected"] = PredSQS
 
@@ -420,6 +493,28 @@ def core_dataframe_write_to_mongodb(cores):
     result = db.insert_many(cores.to_dict('records'))
     # assert all IDs were inserted
     assert(len(result.inserted_ids)==len(cores.index))
+def core_dataframe_write_to_mongodb_skipped_segments(cores):
+    """ Inserts the records. Will add to existing {'stain','coreID'} documents where possible.
+    Everything is put into subfield to indicate the score was calculated without aggregation at segment level first.
+
+    :param cores: pandas dataframe
+    :return:
+    """
+    # before writing to database, check that all ratings have been included
+    assert numberOfClassificationsPerCore[0] == 0
+    con = MongoClient("localhost", 27017)
+    db = con.results.cores
+    for _,core in cores.iterrows():
+        db.update_one({'stain': core.stain, "coreID": core.coreID}, {"$set": {
+            'ignoring_segments.aggregatePropCorrected': core['aggregatePropCorrected'],
+            'ignoring_segments.aggregateIntensityCorrected': core['aggregateIntensityCorrected'],
+            'ignoring_segments.aggregatePropCorrectedCategory': core['aggregatePropCorrectedCategory'],
+            'ignoring_segments.aggregateSQSCorrectedAdditive': core['aggregateSQSCorrectedAdditive'],
+            'ignoring_segments.aggregateSQSCorrected': core['aggregateSQSCorrected'],
+            'ignoring_segments.nClassificationsTotal': core['nClassificationsTotal'],
+            'ignoring_segments.nCancerOfAllClassifications': core['nCancerOfAllClassifications'],
+        }}, upsert=True)
+
 def write_bootstrap_single_to_mongodb(dat,N):
     """ Takes a series of correlation values and writes them to mongodb
 
@@ -476,29 +571,49 @@ def user_vs_expert_rho(cores):
     return rhoProp,rhoIntensity,rhoSQS,rhoSQSadditive,qwkIntensity
 def percentage_to_category(percentages):
     """Takes percentage stained and transforms to categories, useful for calculating pseudo-allred
-    :param percentages: numpy array or Pandas series with percentage cancer
+    :param percentages: numpy array or Pandas series with percentage cancer. Can be None if only interested in the transformation
     :return: categ: same dimension as 'percentages', transformed to groups, float
+    :return transform: pandas dataframe with a category and percentage column, indicating max percentage within that category
     """
     # set up dataframe with thresholds and categories. Percentages are inclusive. So if you're a 38, you'll be assigned the category which has the first value above 38 (e.g. 50)
     if stain in ('mre11','test mre11','p21','tip60','rad50','53bp1','ctip_nuclear','hdac2','nbs1','rpa','mre11_cterm','dck_nuclear','mdm2'):
-        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100]]).T,columns=("category","percentage"))
+        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100],[0,12.5,37.5,62.5,85,97.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('p53','ki67'):
-        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,50,75,100]]).T,columns=("category","percentage"))
+        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,50,75,100],[0,5,17.5,37.5,62.5,87.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('hdac4_membrane','ck56','ck20'):
-        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,65,95,100]]).T,columns=("category","percentage"))
+        transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,65,95,100],[0,5,17.5,45,80,97.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('ctip_cytoplasm','hdac4_cytoplasm','dck_cytoplasm'):
         raise Exception('unclear how to go from percentage to present/absent')
     else:
         raise Exception('transformation not specified for stain type')
 
-    categ = np.zeros([len(percentages)])
-    for iP in range(len(percentages)):
-        # find lowest category that includes the percentage (e.g. 20 is smaller than 30, 60, and 100, so should fit in the 30 category)
-        try: # can fail sometimes apparently
+    if np.all(percentages == None): # this would mean None was given
+        return (None, transform)
+    else: # this means non-None was given
+        categ = np.zeros([len(percentages)])*np.nan
+        for iP in range(len(percentages)):
+            # find lowest category that includes the percentage (e.g. 20 is smaller than 30, 60, and 100, so should fit in the 30 category)
+            # try: # can fail sometimes apparently
             categ[iP] = min([x["category"] for _,x in transform.iterrows() if percentages[iP] <= x["percentage"]])
-        except:
-            pass
-    return categ
+            # except:
+            #     pass
+        return (categ, transform)
+def category_to_percentage(categories):
+    """NOTE: the response IDs in annotations[1]["a-2"] do not correspond to the categories expressed in percentage_to_category(),
+    but are 1 higher. So when feeding them to this function, make sure to subtract 1 to make the range 0 to 5.
+    If a category is -1 it is set a percentage = np.nan
+    Takes a pd.series or np.array with staining categories and transforms them to percentages. Specifically, to percentage in the middle of the category
+    Relies in percentage_to_category() to store the transformation from category to percentage
+    :param categories: pandas series or np.array
+    :return: np.array of same size as categories, but now with middle percentage of each category provided.
+    """
+    _,trans = percentage_to_category(None)
+    # set index equal to categories
+    foo = pd.DataFrame(categories, columns=["proportion"], dtype='float64')
+    merged = foo.merge(trans,'left',left_on="proportion", right_on="category")
+    # set -1 to
+    merged[categories == -1] = np.nan
+    return np.array(merged.middle_of_bin)
 def plot_rho(rhoBoot):
     # set index as separate column
     toPlot = rhoBoot.copy()
@@ -510,7 +625,6 @@ def plot_rho(rhoBoot):
     plt.ylabel("Spearman r")
     plt.title("number of users/segment vs. accuracy")
     plt.draw()
-
 
 
 
@@ -538,6 +652,33 @@ def run_full_cores():
     core_dataframe_write_to_mongodb(cores)
     core_dataframe_write_to_excel(cores)
     return cores,cln
+def run_full_cores_skip_segments():
+    """ Calculate core-level stats, like run_full_cores, but rather than multi-step approach
+    whereby first scores for each segment are calculated, and then combined to get to core, we now go straight to a core score
+    from all classifications. That is, we pretend each classification was made about the entire core.
+    This should be a lot faster especially for bootstrapping and it is not obvious that it will affect accuracy.
+    In the end these data will be written to the same documents as run_full_cores so can be compared at that stage.
+    This function will always use all classifications available
+    :return: (cores, cln)
+    """
+    # this should only be ran including all users
+    assert numberOfClassificationsPerCore[0] == 0
+    # create pandas dataframe with all classifications for requested stain
+    t = time.time()
+    cln = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False)
+    print 1, time.time()-t
+    # calculate proportion and intensity scores for each core
+    cores = cores_dataframe_fill_from_individual_classifications(cln=cln, nCl=numberOfClassificationsPerCore[0])
+    print 2, time.time()-t
+    cores = core_dataframe_add_expert_scores(cores)
+    print 3, time.time()-t
+    cores = core_dataframe_add_corrected_SQS(cores)
+    print 4, time.time()-t
+    cores = core_dataframe_split_core_id(cores)
+    print 5, time.time()-t
+    core_dataframe_write_to_mongodb_skipped_segments(cores)
+    print 6, time.time()-t
+    return (cores, cln)
 def run_bootstrap_rho():
     # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
     rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfUsersPerSubject)
@@ -565,9 +706,11 @@ def run_bootstrap_rho():
         rhoBoot.to_pickle(stain+"bootstrap.pkl")
         ix += 1
 
+
 ########### FUNCTION EXECUTION
 def main():
-    cores,cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
+    # cores, cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
+    cores, cln = run_full_cores_skip_segments()
     # run_bootstrap_rho() # requires run_full_cores to have run; requires rto_mongodb_utils.
 
     # plot_weighted_vs_unweighted_stain(cores)
