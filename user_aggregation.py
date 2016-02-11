@@ -18,26 +18,40 @@ import os
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 from sklearn import cross_validation as cv
+from sklearn import pipeline
+from sklearn.preprocessing import Imputer
 import time
 import re
 from openpyxl import load_workbook
 import datetime
 import quadratic_weighted_kappa as qwk
 import rto_mongodb_utils
+import math
 
 # USER OPTIONS
 stain = "p21".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
-minClassifications = 1  # min number of classifications the segment needs to have, inclusive
-numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
-samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
-# additional/separate options for running run_full_cores_skip_segments()
-numberOfClassificationsPerCore = np.array([0])  # will draw X classifications per core with replacement. Set to zero to include all; give a range to test multiple numbers
+aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
+# aggregate = 'segment_aggregation'
+bootstrap = True       # whether to bootstrap
+if (aggregate == "ignoring_segments") & (not bootstrap):
+    numberOfClassificationsPerCore = np.array([0])  # will draw X classifications per core with replacement. Only used if aggregate = 'ignoring_segments'. Set to zero to include all; give a range to test multiple numbers
+    samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+elif (aggregate == "ignoring_segments") & bootstrap:
+    numberOfClassificationsPerCore = np.array([1,2,3,5,7,10,15,20,30,40,50])
+    samplesPerNumberOfUsers = 10000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+elif (aggregate == "segment_aggregation") & (not bootstrap):
+    numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Only used if aggregate = 'segment_aggregation'. Set to 0 to not restrict number of users
+    samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+elif (aggregate == "segment_aggregation") & bootstrap:
+    numberOfUsersPerSubject = np.array([1,2,3,4,5,6]) # will loop over each of the number of users and calculate Spearman rho. Only used if aggregate = 'segment_aggregation'. Set to 0 to not restrict number of users
+    samplesPerNumberOfUsers = 10000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+
 
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
     {"metadata.stain_type_lower": stain},
-    {"classification_count": {"$gte": minClassifications}},
+    {"classification_count": {"$gte": 1}},
 ]}
 
 # list all stain types we have GS for in a list
@@ -64,7 +78,7 @@ def pymongo_connection_open():
 def pymongo_connection_close():
     """Close pymongo connection"""
     dbConnection.close()
-def classifications_dataframe_fill(numberOfUsersPerSubject=numberOfUsersPerSubject,skipNonExpertClassifications=False):
+def classifications_dataframe_fill(numberOfUsersPerSubject,skipNonExpertClassifications=False):
     """Find all classifications for requested stain and aggregate responses for each subject
     This function saves and returns a pandas dataframe that has one row per subject (=segment) and columns that indicate proportion of all classifications given that answer.
     Note: proportion for different stain answers might not add up to 1 as people that say 'no cancer' still count towards classifications
@@ -167,10 +181,7 @@ def classifications_dataframe_fill_individual_classifications(skipNonExpertClass
     # check something was actually found
     assert clCursor.count()>0
     # dump data into dataframe. This can take a long time and requires a lot of memory
-    print "Putting",clCursor.count(),"classifications into dataframe..."
-    t = time.time()
     cln = pd.DataFrame(list(clCursor))
-    print "... done. Time elapsed:",time.time()-t,'seconds'
     # set cancer to True or False
     cln.cancer = cln.cancer.apply(int) == 1
     # set noCancer classifications IHC scores to 0
@@ -323,7 +334,7 @@ def core_dataframe_fill(cln):
     # add category for aggregateWeighted
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted)[0])
     return cores
-def cores_dataframe_fill_from_individual_classifications(cln,nCl=numberOfClassificationsPerCore[0]):
+def cores_dataframe_fill_from_individual_classifications(cln,nCl=0):
     """
     Takes a dataframe with classifications from classifications_dataframe_fill_individual_classifications() and
     calculates scores for each core
@@ -373,6 +384,7 @@ def core_dataframe_add_expert_scores(cores):
     # % Positive
     # Intensity Score
     # SQS
+
     # add expert columns to dataframe
     cores = cores.merge(coresGS, how='left', on='coreID', sort=True)
     cores["hasExpert"] = ~np.isnan(cores.expSQS)
@@ -399,20 +411,23 @@ def core_dataframe_add_corrected_SQS(cores):
     PredInt = PredProp.copy()
     # prepare the sklearn function
     clf = linear_model.LinearRegression()
+    # prepare the sklearn pipeline. There's an imputer in case there's missing values - i.e. all subjects saying no cancer and
+    # therefore not providing IHC scores
+    p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
     # use cross_val_predict to predict the values based on 10-fold cross-validation
-    PredProp[mask] = cv.cross_val_predict(clf,Xprop,Yprop,cv=10)
-    PredInt[mask] = cv.cross_val_predict(clf,Xint,Yint,cv=10)
+    PredProp[mask] = cv.cross_val_predict(p,Xprop,Yprop,cv=10)
+    p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
+    PredInt[mask] = cv.cross_val_predict(p,Xint,Yint,cv=10)
     # apply relationship to cores not done by experts only if they exist
     if np.sum(~mask)>0:
-        # now predict new values for the cores we do not have expert data for
-        clf = linear_model.LinearRegression()
         # fit expert data
-        clf.fit(X=Xprop,y=Yprop)
-        PredProp[~mask] = clf.predict(cores.aggregatePropWeighted[~mask][:,np.newaxis])
+        p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
+        p.fit(X=Xprop,y=Yprop)
+        PredProp[~mask] = p.predict(cores.aggregatePropWeighted[~mask][:,np.newaxis])
         # and again for intensity
-        clf = linear_model.LinearRegression()
-        clf.fit(X=Xint,y=Yint)
-        PredInt[~mask] = clf.predict(cores.aggregateIntensityWeighted[~mask][:,np.newaxis])
+        p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
+        p.fit(X=Xint,y=Yint)
+        PredInt[~mask] = p.predict(cores.aggregateIntensityWeighted[~mask][:,np.newaxis])
 
     # filter any scores outside range
     np.clip(PredProp,0,100,PredProp)
@@ -443,7 +458,7 @@ def core_dataframe_write_to_excel(cores):
     :return: None
     """
     # write entire dataframe
-    cores.to_excel(excel_writer=("results\RtO_results_"+stain+"_full.xlsx"))
+    cores.to_excel(excel_writer=("results\RtO_results_"+stain+"_"+aggregate+"_full.xlsx"))
     # write a clean version too
     c = cores.loc[:,["core",'aggregatePropWeighted','aggregatePropWeightedCategory','aggregateIntensityWeighted',\
                  'aggregateSQS','aggregateSQSadditive',"aggregatePropCorrected","aggregatePropCorrectedCategory",\
@@ -469,7 +484,7 @@ def core_dataframe_write_to_excel(cores):
         'expSQSadditive':'expert Allred-like'
     },inplace=True)
     # write separate excel file for this stain
-    c.to_excel(excel_writer=("results\RtO_results_"+stain+"_clean.xlsx"))
+    c.to_excel(excel_writer=("results\RtO_results_"+stain+"_"+aggregate+"_clean.xlsx"))
     # write into a single aggregate excel doc with multiple sheets.
     # copied from http://stackoverflow.com/questions/20219254/how-to-write-to-an-existing-excel-file-without-overwriting-data
     aggregateFile = "results\RtO_results_clean.xlsx"
@@ -477,43 +492,23 @@ def core_dataframe_write_to_excel(cores):
     writer = pd.ExcelWriter(aggregateFile, engine='openpyxl')
     writer.book = book
     writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
-    c.to_excel(excel_writer=writer,sheet_name=stain)
+    c.to_excel(excel_writer=writer,sheet_name=stain+aggregate)
     writer.save()
 def core_dataframe_write_to_mongodb(cores):
-    """ Inserts the records. Will wipe any existing cores on the stain
+    """ Inserts the records.
 
     :param cores: pandas dataframe
     :return:
     """
     con = MongoClient("localhost", 27017)
     db = con.results.cores
-    # delete all entries for this stain
-    db.delete_many({'stain':stain})
-    # add all cores for this stain
-    result = db.insert_many(cores.to_dict('records'))
-    # assert all IDs were inserted
-    assert(len(result.inserted_ids)==len(cores.index))
-def core_dataframe_write_to_mongodb_skipped_segments(cores):
-    """ Inserts the records. Will add to existing {'stain','coreID'} documents where possible.
-    Everything is put into subfield to indicate the score was calculated without aggregation at segment level first.
-
-    :param cores: pandas dataframe
-    :return:
-    """
-    # before writing to database, check that all ratings have been included
-    assert numberOfClassificationsPerCore[0] == 0
-    con = MongoClient("localhost", 27017)
-    db = con.results.cores
-    for _,core in cores.iterrows():
-        db.update_one({'stain': core.stain, "coreID": core.coreID}, {"$set": {
-            'ignoring_segments.aggregatePropCorrected': core['aggregatePropCorrected'],
-            'ignoring_segments.aggregateIntensityCorrected': core['aggregateIntensityCorrected'],
-            'ignoring_segments.aggregatePropCorrectedCategory': core['aggregatePropCorrectedCategory'],
-            'ignoring_segments.aggregateSQSCorrectedAdditive': core['aggregateSQSCorrectedAdditive'],
-            'ignoring_segments.aggregateSQSCorrected': core['aggregateSQSCorrected'],
-            'ignoring_segments.nClassificationsTotal': core['nClassificationsTotal'],
-            'ignoring_segments.nCancerOfAllClassifications': core['cancer'],
-        }}, upsert=True)
+    # rename cores
+    coresToWrite = cores.rename(columns = lambda x : aggregate + '.' + x)
+    for _,core in coresToWrite.iterrows():
+        # write basic info if core doesn't exist yet
+        db.update_one({'stain': core[aggregate+'.stain'], "coreID": core[aggregate+'.coreID']}, {"$set":{'stain': core[aggregate+'.stain'], "coreID": core[aggregate+'.coreID']}}, upsert=True)
+        # write in this method's data
+        db.update_one({'stain': core[aggregate+'.stain'], "coreID": core[aggregate+'.coreID']}, {"$set": core.to_dict()})
 def write_bootstrap_single_to_mongodb(dat,N):
     """ Takes a series of correlation values and writes them to mongodb
 
@@ -532,7 +527,8 @@ def write_bootstrap_single_to_mongodb(dat,N):
                 'Allred':dat[3],
                 'qwkIntensity':dat[4],
                 'last_modified':datetime.datetime.utcnow(),
-                'database':rto_mongodb_utils.currentDB
+                'database':rto_mongodb_utils.currentDB,
+                'aggregate':aggregate
             }
         )
 def get_core_ids(cln):
@@ -561,7 +557,7 @@ def user_vs_expert_rho(cores):
     rhoIntensity = cores['expIntensity'].corr(cores.aggregateIntensityCorrected,method='spearman')
     rhoSQS = cores['expSQS'].corr(cores.aggregateSQSCorrected,method='spearman')
     rhoSQSadditive = cores['expSQSadditive'].corr(cores.aggregateSQSCorrectedAdditive,method='spearman')
-    qwkIntensity = qwk.quadratic_weighted_kappa(cores.expIntensity, cores.aggregateIntensityCorrected, min_rating=0, max_rating=3)
+    qwkIntensity = qwk.quadratic_weighted_kappa(cores.expIntensity, np.round(cores.aggregateIntensityCorrected), min_rating=0, max_rating=3)
     #There's a value consistently showing up in these calculations - must be something wrong. Always -0.378085328319
     if (rhoSQS < -0.35) & (rhoSQS > -0.40):
         cores.to_pickle('WEIRD_rhoSQS.pkl')
@@ -591,11 +587,9 @@ def percentage_to_category(percentages):
     else: # this means non-None was given
         categ = np.zeros([len(percentages)])*np.nan
         for iP in range(len(percentages)):
-            # find lowest category that includes the percentage (e.g. 20 is smaller than 30, 60, and 100, so should fit in the 30 category)
-            # try: # can fail sometimes apparently
-            categ[iP] = min([x["category"] for _,x in transform.iterrows() if percentages[iP] <= x["percentage"]])
-            # except:
-            #     pass
+            # might be a nan if user did not indicate cancer
+            if not math.isnan(percentages[iP]):
+                categ[iP] = min([x["category"] for _,x in transform.iterrows() if percentages[iP] <= x["percentage"]])
         return (categ, transform)
 def category_to_percentage(categories):
     """NOTE: the response IDs in annotations[1]["a-2"] do not correspond to the categories expressed in percentage_to_category(),
@@ -625,51 +619,37 @@ def plot_rho(rhoBoot):
     plt.title("number of users/segment vs. accuracy")
     plt.draw()
 
-
-
 def run_full_cores():
     """ Main function of this script.
     Will run a single pass through analysis, collecting classifications, forming dataframe, writing to excel and mongodb
     :return: cores
     """
-    # this code should only be ran when including all users
-    assert numberOfUsersPerSubject==0
-    assert samplesPerNumberOfUsers==1
-    # check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
-    if os.path.isfile(classificationsDataframeFn) == False:
-        cln = classifications_dataframe_fill(numberOfUsersPerSubject=0,skipNonExpertClassifications=False)
-        classifications_dataframe_save(cln)
-    else:  # dataframe available, load instead of fill
-        cln = classifications_dataframe_load(fn=classificationsDataframeFn)
-    # add columns to cln that indicates, for each subject, what the aggregate is of the multiple columns
-    cln = cln_add_columns_aggregating_stain(cln)
-    # aggregate data from multiple subjects into a single score for each core
-    cores = core_dataframe_fill(cln)
+    if aggregate == 'segment_aggregation':
+        # this code should only be ran when including all users
+        assert numberOfUsersPerSubject[0]==0
+        assert len(numberOfUsersPerSubject)==1
+        assert samplesPerNumberOfUsers==1
+        # check if dataframe with classifications exists; if not, run over each classification and store its properties in a pandas dataframe. If it does exist, load it.
+        if os.path.isfile(classificationsDataframeFn) == False:
+            cln = classifications_dataframe_fill(numberOfUsersPerSubject=0,skipNonExpertClassifications=False)
+            classifications_dataframe_save(cln)
+        else:  # dataframe available, load instead of fill
+            cln = classifications_dataframe_load(fn=classificationsDataframeFn)
+        # add columns to cln that indicates, for each subject, what the aggregate is of the multiple columns
+        cln = cln_add_columns_aggregating_stain(cln)
+        # aggregate data from multiple subjects into a single score for each core
+        cores = core_dataframe_fill(cln)
+    elif aggregate == 'ignoring_segments':
+        assert numberOfClassificationsPerCore[0] == 0
+        cln = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False)
+        cores = cores_dataframe_fill_from_individual_classifications(cln=cln, nCl=numberOfClassificationsPerCore[0])
+    cores = core_dataframe_split_core_id(cores)
     cores = core_dataframe_add_expert_scores(cores)
     cores = core_dataframe_add_corrected_SQS(cores)
-    cores = core_dataframe_split_core_id(cores)
     core_dataframe_write_to_mongodb(cores)
     core_dataframe_write_to_excel(cores)
-    return cores,cln
-def run_full_cores_skip_segments():
-    """ Calculate core-level stats, like run_full_cores, but rather than multi-step approach
-    whereby first scores for each segment are calculated, and then combined to get to core, we now go straight to a core score
-    from all classifications. That is, we pretend each classification was made about the entire core.
-    This should be a lot faster especially for bootstrapping and it is not obvious that it will affect accuracy.
-    In the end these data will be written to the same documents as run_full_cores so can be compared at that stage.
-    This function will always use all classifications available
-    :return: (cores, cln)
-    """
-    # this should only be ran including all users
-    assert numberOfClassificationsPerCore[0] == 0
-    cln = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False)
-    cores = cores_dataframe_fill_from_individual_classifications(cln=cln, nCl=numberOfClassificationsPerCore[0])
-    cores = core_dataframe_split_core_id(cores)
-    cores = core_dataframe_add_expert_scores(cores)
-    cores = core_dataframe_add_corrected_SQS(cores)
-    core_dataframe_write_to_mongodb_skipped_segments(cores)
-    return (cores, cln)
-def run_bootstrap_rho():
+    return (cores,cln)
+def run_bootstrap_rho_segment_aggregation():
     # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
     rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfUsersPerSubject)
     rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,5))
@@ -681,6 +661,7 @@ def run_bootstrap_rho():
             cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
             cln = cln_add_columns_aggregating_stain(cln)
             cores = core_dataframe_fill(cln)
+            cores = core_dataframe_split_core_id(cores)
             cores = core_dataframe_add_expert_scores(cores)
             cores = core_dataframe_add_corrected_SQS(cores)
             rho[iB,:] = user_vs_expert_rho(cores)
@@ -695,13 +676,34 @@ def run_bootstrap_rho():
         np.save(stain+"bootstrap_full.npy",rhoFull)
         rhoBoot.to_pickle(stain+"bootstrap.pkl")
         ix += 1
+def run_bootstrap_rho_ignoring_segments():
+    # # loop over all requested version of numberOfClassificationsPerCore for samplesPerNumberOfUsers times
+    rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfClassificationsPerCore)
+    rhoFull = np.zeros((len(numberOfClassificationsPerCore),samplesPerNumberOfUsers,5))
+    ix = 0
+    clnAll = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False)
+    for N in numberOfClassificationsPerCore:
+        t = time.time()
+        for iB in range(samplesPerNumberOfUsers):
+            cores = cores_dataframe_fill_from_individual_classifications(cln=clnAll, nCl=N)
+            cores = core_dataframe_split_core_id(cores)
+            cores = core_dataframe_add_expert_scores(cores)
+            cores = core_dataframe_add_corrected_SQS(cores)
+            rho = user_vs_expert_rho(cores)
+            print "including",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time:',np.round(time.time()-t),'seconds'
+            # write this iteration to mongodb
+            write_bootstrap_single_to_mongodb(rho,N)
+        ix += 1
 
 
 ########### FUNCTION EXECUTION
 def main():
-    # cores, cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
-    cores, cln = run_full_cores_skip_segments()
-    # run_bootstrap_rho() # requires run_full_cores to have run; requires rto_mongodb_utils.
+    if not bootstrap:
+        cores, cln = run_full_cores() # will also generate the .pkl file with classifications if it doesn't exist
+    elif (aggregate == 'segment_aggregation') & bootstrap:
+        run_bootstrap_rho_segment_aggregation() # requires run_full_cores to have run; requires rto_mongodb_utils.
+    elif (aggregate == 'ignoring_segments') & bootstrap:
+        run_bootstrap_rho_ignoring_segments()
 
     # plot_weighted_vs_unweighted_stain(cores)
     # plot_user_vs_expert(cores)
