@@ -71,13 +71,11 @@ def add_whether_subject_is_part_of_core_with_expert_data(db):
     # loop over each stain
     for stain in stains:
         print "adding expert tags for stain "+stain
-        # load GS data
-        coresGS = pd.read_excel("GS\GS_"+stain+".xlsx")
         # get all entries in mongodb for this stain, returning only _id and id_no
         subjectCursor = db.find(filter={'metadata.stain_type_lower':stain},no_cursor_timeout=True)
         # loop over each and check whether it has expert data
         for sj in subjectCursor:
-            hasExpert = user_aggregation.sj_in_expert_core(sj["metadata"]["id_no"],coresGS=coresGS)
+            hasExpert = user_aggregation.sj_in_expert_core(sj["metadata"]["id_no"],coresGS=user_aggregation.coresGS)
             db.update_one({'_id':sj['_id']},{'$set':{'hasExpert':hasExpert}},upsert=False)
 
 

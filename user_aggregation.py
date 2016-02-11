@@ -25,16 +25,13 @@ import datetime
 import quadratic_weighted_kappa as qwk
 import rto_mongodb_utils
 
-desired_width = 300
-pd.set_option('display.width', desired_width)
-
 # USER OPTIONS
-stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "p21".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 minClassifications = 1  # min number of classifications the segment needs to have, inclusive
 numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Set to 0 to not restrict number of users
 samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 # additional/separate options for running run_full_cores_skip_segments()
-numberOfClassificationsPerCore = np.array([0])  # will X classifications per core. Set to zero to include all; give a range to test multiple numbers
+numberOfClassificationsPerCore = np.array([0])  # will draw X classifications per core with replacement. Set to zero to include all; give a range to test multiple numbers
 
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
@@ -49,8 +46,6 @@ stains = [x.lstrip('GS_').rstrip('.xlsx') for x in f]
 
 # save file for scores
 classificationsDataframeFn = "results\classifications_dataframe_" + stain + ".pkl"  # will store the pandas dataframe created from all the classifications; file will load if the file exists already to prevent another 30 to 60 min of processing.
-# load GS data
-coresGS = pd.read_excel("GS\GS_"+stain+".xlsx")
 
 
 ########### FUNCTION DEFINITIONS
@@ -159,10 +154,16 @@ def classifications_dataframe_fill_individual_classifications(skipNonExpertClass
     :return: a pandas dataframe, nClassifications*nColumns
     """
     # retrieve classifications, either including or excluding those on non-expert cores
+    project = {
+            '_id': False,
+            'cancer': True,
+            'proportion': True,
+            'intensity': True,
+            'id_no': True}
     if skipNonExpertClassifications:
-        clCursor = classifCollection.find({"stain_type_lower":stain, "hasExpert":True}, projection=('cancer','proportion','intensity','id_no'))
+        clCursor = classifCollection.find({"stain_type_lower":stain, "hasExpert":True}, projection=project)
     if ~skipNonExpertClassifications:
-        clCursor = classifCollection.find({"stain_type_lower":stain}, projection=('cancer','proportion','intensity','id_no'))
+        clCursor = classifCollection.find({"stain_type_lower":stain}, projection=project)
     # check something was actually found
     assert clCursor.count()>0
     # dump data into dataframe. This can take a long time and requires a lot of memory
@@ -172,13 +173,22 @@ def classifications_dataframe_fill_individual_classifications(skipNonExpertClass
     print "... done. Time elapsed:",time.time()-t,'seconds'
     # set cancer to True or False
     cln.cancer = cln.cancer.apply(int) == 1
-    # add percentage stained
-    cln['aggregatePropWeighted'] = category_to_percentage(cln.proportion.apply(int)-1)
-    # rename columns to sensible descriptions that rest of the code understands
-    cln.rename(columns={'id_no': 'core', "_id": "subjectID", 'proportion': 'aggregatePropWeightedCategory', 'intensity': 'aggregateIntensityWeighted'},inplace=True)
+    # set noCancer classifications IHC scores to 0
+    cln.loc[~cln.cancer,'intensity'] = np.nan
+    cln.loc[~cln.cancer,'proportion'] = np.nan
     cln = cln.convert_objects(convert_numeric=True)
+    # add percentage stained
+    cln['aggregatePropWeighted'] = category_to_percentage(cln.proportion-1)
+    # rename columns to sensible descriptions that rest of the code understands
+    cln.rename(columns={
+        'id_no': 'core',
+        "_id": "subjectID",
+        'proportion': 'aggregatePropWeightedCategory',
+        'intensity': 'aggregateIntensityWeighted'}
+        ,inplace=True)
+
     return cln
-def sj_in_expert_core(coreID,coresGS=coresGS):
+def sj_in_expert_core(coreID,coresGS):
     """
     Checks for a given core object ID whether it can be found in the expert scores. Used by classifications_dataframe_fill
     to save having to fill the cln dataframe with segments that do not belong to a core we have GS for.
@@ -323,34 +333,38 @@ def cores_dataframe_fill_from_individual_classifications(cln,nCl=numberOfClassif
     """
     # get numpy array of core ID numbers, splitting off the stain type
     coreID = cln.core.unique()
-    # initialise df with number of rows equal to number of cores
-    cores = pd.DataFrame(data=coreID,index=range(len(coreID)),columns=['core'])
-    # combine through a merge and mean
-    cores = cores.merge(cln,how='left',on='core')
-    coresNoCancer = cores[cores.cancer]
-    coresNoCancer = coresNoCancer.groupby(coresNoCancer.core).mean()
-    raise Exception("to sample, try using groupby().take or groupby().apply. Also see more methods http://pandas.pydata.org/pandas-docs/stable/generated/pandas.core.groupby.DataFrameGroupBy.take.html)")
-    # for each core in coreID
-    for iCore in range(len(coreID)):
-        isCurrentCore = cln.core == coreID[iCore]
-        cores.loc[iCore,'nClassificationsTotal'] = np.sum(isCurrentCore)
-        cores.loc[iCore,'nCancerOfAllClassifications'] = np.mean(cln[isCurrentCore]['cancer']-1)
-        if nCl == 0:
-            # select all classifications
-            sample = cln[isCurrentCore]
-        elif nCl > 0:
-            # select random set of classifications of this core
-            sample = cln[isCurrentCore].sample(n=nCl,replace=False,axis=0)
-        # throw out those that said no cancer (which would be 2)
-        sample = sample[sample.cancer == 1]
-        # calculate relevant scores. 'sample' contains a column 'proportion' which is value from 1 to 6.
-        # This should be 0 to 5 in Allred categories. These correspond to percentages in percentage_to_category()
-        cores.loc[iCore,'aggregatePropWeighted'] = category_to_percentage(sample["proportion"]-1).mean()
-        cores.loc[iCore,'aggregateIntensityWeighted'] = sample["intensity"].mean()
+    # set up function to randomly select classifications.
+    # Thanks a million to http://stackoverflow.com/questions/22472213/python-random-selection-per-group
+    if nCl == 0: # select all; will skip nan when taking mean
+        fn = lambda obj: obj.mean()
+    else: # select random set with replacement and take mean; will skip nan
+        fn = lambda obj: obj.loc[np.random.choice(obj.index, nCl, True),:].mean()
+    # apply the function and get the cores dataframe
+    cores = cln.groupby('core').apply(fn)
+    # store how many classifications were available for each core
+    fn = lambda obj: len(obj)
+    nClassificationsTotal = cln.groupby('core').apply(fn).to_frame('nClassificationsTotal')
+    cores = cores.join(nClassificationsTotal, how='left')
     cores['aggregateSQS'] = cores.aggregatePropWeighted * cores.aggregateIntensityWeighted
     cores['aggregateSQSadditive'] = percentage_to_category(cores.aggregatePropWeighted)[0] + cores.aggregateIntensityWeighted
     cores['aggregatePropWeightedCategory'] = percentage_to_category(cores.aggregatePropWeighted)[0]
+    # put core column back into dataframe
+    cores.reset_index(level=0, inplace=True)
     return cores
+def load_GS_data(stain=stain):
+    """
+    loads the GS data for a stain and adds other columns relevant for analysis
+    """
+    coresGS = pd.read_excel("GS\GS_"+stain+".xlsx")
+    coresGS = coresGS.rename(columns={
+        'Core ID': 'coreID',
+        '% Positive': 'expProp',
+        'Intensity Score': 'expIntensity',
+        'SQS': 'expSQS'
+    })
+    coresGS.insert(len(coresGS.columns),"expPropCategory",percentage_to_category(coresGS.expProp)[0])
+    coresGS.insert(len(coresGS.columns),"expSQSadditive",coresGS.expIntensity + coresGS.expPropCategory)
+    return coresGS
 def core_dataframe_add_expert_scores(cores):
     """add expert scores and return the updated cores dataframe
     """
@@ -360,21 +374,7 @@ def core_dataframe_add_expert_scores(cores):
     # Intensity Score
     # SQS
     # add expert columns to dataframe
-    cores.insert(len(cores.columns),"expProp",np.nan)
-    cores.insert(len(cores.columns),"expIntensity",np.nan)
-    cores.insert(len(cores.columns),"expSQS",np.nan)
-    cores.insert(len(cores.columns),"expSQSadditive",np.nan)
-    # loop over each row in the cores dataframe
-    for ix,row in cores.iterrows():
-        # find row in coresGS that matches current core
-        for ixGS,rowGS in coresGS.iterrows():
-            # if the current row in coresGS is the one that matches the row in cores, store and break
-            if str(int(rowGS.loc["Core ID"])) in row.core:
-                cores.loc[ix,"expProp":"expSQS"] = np.array(rowGS["% Positive":"SQS"])
-                cores.loc[ix,"expSQSadditive"] = cores.loc[ix,"expIntensity"] + percentage_to_category([cores.loc[ix,"expProp"]])[0]
-                cores.loc[ix,"expPropCategory"] = percentage_to_category([cores.loc[ix,"expProp"]])[0]
-                # break out of the coresGS for loop
-                break
+    cores = cores.merge(coresGS, how='left', on='coreID', sort=True)
     cores["hasExpert"] = ~np.isnan(cores.expSQS)
     return cores
 def core_dataframe_add_corrected_SQS(cores):
@@ -512,9 +512,8 @@ def core_dataframe_write_to_mongodb_skipped_segments(cores):
             'ignoring_segments.aggregateSQSCorrectedAdditive': core['aggregateSQSCorrectedAdditive'],
             'ignoring_segments.aggregateSQSCorrected': core['aggregateSQSCorrected'],
             'ignoring_segments.nClassificationsTotal': core['nClassificationsTotal'],
-            'ignoring_segments.nCancerOfAllClassifications': core['nCancerOfAllClassifications'],
+            'ignoring_segments.nCancerOfAllClassifications': core['cancer'],
         }}, upsert=True)
-
 def write_bootstrap_single_to_mongodb(dat,N):
     """ Takes a series of correlation values and writes them to mongodb
 
@@ -663,21 +662,12 @@ def run_full_cores_skip_segments():
     """
     # this should only be ran including all users
     assert numberOfClassificationsPerCore[0] == 0
-    # create pandas dataframe with all classifications for requested stain
-    t = time.time()
     cln = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False)
-    print 1, time.time()-t
-    # calculate proportion and intensity scores for each core
     cores = cores_dataframe_fill_from_individual_classifications(cln=cln, nCl=numberOfClassificationsPerCore[0])
-    print 2, time.time()-t
-    cores = core_dataframe_add_expert_scores(cores)
-    print 3, time.time()-t
-    cores = core_dataframe_add_corrected_SQS(cores)
-    print 4, time.time()-t
     cores = core_dataframe_split_core_id(cores)
-    print 5, time.time()-t
+    cores = core_dataframe_add_expert_scores(cores)
+    cores = core_dataframe_add_corrected_SQS(cores)
     core_dataframe_write_to_mongodb_skipped_segments(cores)
-    print 6, time.time()-t
     return (cores, cln)
 def run_bootstrap_rho():
     # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
@@ -719,6 +709,9 @@ def main():
     # close the connection to local mongoDB
     pymongo_connection_close()
     print "Finished user_aggregation.py"
+
+# load GS data
+coresGS = load_GS_data(stain)
 
 # only execute code if the code is being ran on its own
 if __name__ == "__main__":
