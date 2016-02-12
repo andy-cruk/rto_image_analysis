@@ -15,6 +15,9 @@ from scikits import bootstrap
 import quadratic_weighted_kappa as qwk
 from pymongo import MongoClient
 
+# settings
+aggregate = ['ignoring_segments', 'segment_aggregation']
+aggregate = aggregate[0]
 
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
@@ -48,7 +51,7 @@ def plot_contribution_patterns():
     return f,ax
 
 
-def scatter_for_each_stain(xdat='expSQS', ydat='aggregateSQSCorrected', correlation='spearman'):
+def scatter_for_each_stain(xdat=aggregate+'.expSQS', ydat=aggregate+'.aggregateSQSCorrected', correlation='spearman'):
     """ Takes two measures from the cores database and for each stain, scatters them against one another
     :param xdat: string pointing to column in cores dataset, laid out along x-axis
     :param ydat: see xdat, but along y-axis
@@ -85,7 +88,7 @@ def scatter_for_each_stain(xdat='expSQS', ydat='aggregateSQSCorrected', correlat
     return fig,axes
 
 
-def scatter_performance_single_graph(xcorr=('expProp', 'aggregatePropCorrected'), ycorr=('expIntensity', 'aggregateIntensityCorrected'), xmethod=stats.spearmanr, ymethod=qwk.quadratic_weighted_kappa):
+def scatter_performance_single_graph(xcorr=(aggregate+'.expProp', aggregate+'.aggregatePropCorrected'), ycorr=(aggregate+'.expIntensity', aggregate+'.aggregateIntensityCorrected'), xmethod=stats.spearmanr, ymethod=qwk.quadratic_weighted_kappa):
     """Create single scatterplot with one point per stain. Location on x is set by xmethod on the data in xcorr, ditto for y. Semi-flexible in terms of methods, though might
     need some tweaking to get it to work given different variables returned by different methods (e.g. with/without p-value).
     Plots 95% CI bootstrapped
@@ -144,7 +147,7 @@ def scatter_performance_single_graph(xcorr=('expProp', 'aggregatePropCorrected')
     return r,ci,f,ax
 
 
-def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={}, measure='Hscore', nUsersPerSubject=range(1,5), addCI=True):
+def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={}, measure=aggregate+'.Hscore', nUsersPerSubject=range(1,5), addCI=True):
     """
     yet to implement how to make sure all datapoints are plotted using same number of bootstraps, and how to remove datapoints that have insufficient bootstraps.
     """
