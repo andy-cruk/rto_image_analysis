@@ -11,7 +11,7 @@ import pymongo
 import re
 
 # set the name of the database on your local host to connect to
-currentDB = 'RTO_20160207'
+currentDB = 'RTO_20160212'
 
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
@@ -30,12 +30,12 @@ def add_indices(classifCollection,subjectsCollection):
     classifCollection.create_index("intensity")
 
     subjectsCollection.create_index("_id")
-    subjectsCollection.create_index("stain_type_lower")
+    subjectsCollection.create_index("metadata.stain_type_lower")
     subjectsCollection.create_index("classification_count")
     subjectsCollection.create_index("hasExpert")
     subjectsCollection.create_index("metadata.id_no")
-    subjectsCollection.create_index([("stain_type_lower",pymongo.ASCENDING),("classification_count",pymongo.ASCENDING)])
-    subjectsCollection.create_index([("stain_type_lower",pymongo.ASCENDING),("classification_count",pymongo.ASCENDING),("hasExpert",pymongo.ASCENDING)])
+    subjectsCollection.create_index([("metadata.stain_type_lower",pymongo.ASCENDING),("classification_count",pymongo.ASCENDING)])
+    subjectsCollection.create_index([("metadata.stain_type_lower",pymongo.ASCENDING),("classification_count",pymongo.ASCENDING),("hasExpert",pymongo.ASCENDING)])
 
 
 def add_lowercase_metadata_staintype(db):
@@ -47,6 +47,8 @@ def add_lowercase_metadata_staintype(db):
     db.update_many({"group.name":"TMAs_Ki67"},{"$set":{"metadata.stain_type":"Ki67"}})
     # NBS1 has the wrong metadata.stain_type
     db.update_many({"group.name":"TMAs_NBS1"},{"$set":{"metadata.stain_type":"NBS1"}})
+    # 53BP1 has the wrong metadata.stain_type and group.name (should be a 1, not an i at the end)
+    db.update_many({"group.name":"53BPI"},{"$set":{"group.name":"53BP1","metadata.stain_type":"53BP1"}})
     # the different MRE11 variants need to update their stain_type too
     db.update_many({"group.name":"MRE11_new_TMAs"},{"$set":{"metadata.stain_type":"MRE11new"}})
     db.update_many({"group.name":"MRE11c"},{"$set":{"metadata.stain_type":"MRE11c"}})
@@ -123,8 +125,9 @@ def correct_known_mistakes(db, classifCollection):
     db.update_many({"metadata.id_no":"8079 p21_"},{"$set":{"metadata.id_no":"8079 p21"}})
     db.update_many({"metadata.id_no":"7987  p21"},{"$set":{"metadata.id_no":"7987 p21"}})
     db.update_many({"metadata.id_no":"8583  p21"},{"$set":{"metadata.id_no":"8583 p21"}})
-    db.update_many({"metadata.id_no":"8280 CK5 "},{"$set":{"metadata.id_no":"8280 CK5"}})
     db.update_many({"metadata.id_no":"8772 MRE11 new_"},{"$set":{"metadata.id_no":"8772 MRE11 new"}})
+    db.update_many({"metadata.id_no":"7812 RAD50 "},{"$set":{"metadata.id_no":"7812 RAD50"}})
+
     # remove a bunch of tutorial images
     db.delete_many({"metadata.id_no":{"$in":[
             "7635 MRE11 new 1+",
@@ -143,25 +146,28 @@ def correct_known_mistakes(db, classifCollection):
             "8680 MRE11 new blood vessels",
             "8719 MRE11 new stroma",
     ]}})
-    # update id_no for mre11new samples (to remove space and change some other weird additions , which can be most reliably identified by metadata.stain_type_lower as mre11new
-    # ZOONIVERSE NEED TO FIX THEIR DATABASE; SEE EMAIL TO RUPESH AND SARAH DATED FEB 9 2016 ABOUT DUPLICATE IMAGES UNDER DIFFERENT NAMES
-    # cursor = db.find({"metadata.stain_type_lower":'mre11new'})
-    # for doc in cursor:
-    #     # get the id_no
-    #     id_no = doc["metadata"]["id_no"]
-    #     # get the TMA number
-    #     n = id_no.split()[0]
-    #     # write id_no
-    #     db.update_one({"_id":doc["_id"]},{"$set":{"metadata.id_no":n+' MRE11new'}})
     # change id_no for 'test mre11'
     cursor = db.find({"metadata.stain_type_lower": 'test mre11'})
     for doc in cursor:
         # get the id_no
         id_no = doc["metadata"]["id_no"]
-        # get the TMA number, which is the first element after first underscore
-        n = id_no.split('_')[1]
-        # write id_no
-        db.update_one({"_id": doc["_id"]}, {"$set": {"metadata.id_no": n+' test mre11'}})
+        if '_' in id_no: # only run this if it hasn't been adjusted yet, i.e. it has to have an underscore
+            # get the TMA number, which is the first element after first underscore
+            n = id_no.split('_')[1]
+            # write id_no
+            db.update_one({"_id": doc["_id"]}, {"$set": {"metadata.id_no": n+' test mre11'}})
+    # MRE11new has id_no which has a space between MRE11 and new.
+    db.update_many({"metadata.id_no":"7909 MRE11 new_"},{"$set":{"metadata.id_no":"7909 MRE11 new"}})
+    cursor = db.find({"metadata.stain_type_lower": 'mre11new'})
+    for doc in cursor:
+        # get the id_no
+        id_no = doc["metadata"]["id_no"]
+        if "MRE11 new" in id_no: # only run if hasn't been adjusted yet
+            # get the TMA number, which is the first element after first underscore
+            n = id_no.split()[0]
+            # write id_no
+            db.update_one({"_id": doc["_id"]}, {"$set": {"metadata.id_no": n+' MRE11new'}})
+
     # a bunch of rad50 and every sample added after that doesn't have metadata.id_no. So has to be derived from the filename, which can be stored in 2 different fields
     # Also see db.getCollection('subjects').distinct('metadata.orig_filename',{"metadata.stain_type_lower":"rad50","metadata.id_no":{"$exists":false}})
     # applied in mongodb
@@ -174,11 +180,19 @@ def correct_known_mistakes(db, classifCollection):
 
     ##### all stains that have orig_directory with format ^[ a-zA-Z0-9_]*/\w*/dddd_stain/\w*\.jpg. Note the [ a-zA-Z0-9_] which accounts for spaces too, which \w does not. Some filenames have spaces in them (!)
     # note also some filenames end in Thumbs.db, so are not jpg
-    stains = ('tip60','53bpi')
+    stains = ('tip60','53bp1')
     docs = db.find({"metadata.stain_type_lower": {"$in": stains}})
     coreNames = [x["metadata"]["orig_directory"][re.search("^[ a-zA-Z0-9_]*/\w*/",x["metadata"]["orig_directory"]).end(0):re.search("/\w*\..*$",x["metadata"]["orig_directory"]).start(0)].replace('_',' ') for x in docs.rewind()]
     for ix,doc in enumerate(docs.rewind()):
         db.update_one({'_id': doc['_id']},{'$set': {'metadata.id_no': coreNames[ix]}})
+
+
+
+    # these have to be changed after adding id_no
+    db.update_many({"metadata.id_no":"8280 CK5 "},{"$set":{"metadata.id_no":"8280 CK5"}})
+    db.update_many({"metadata.id_no":"8632 Ki67 "},{"$set":{"metadata.id_no":"8632 Ki67"}})
+    db.update_many({"metadata.id_no":"8640  Ki67"},{"$set":{"metadata.id_no":"8640 Ki67"}})
+
 
     # add some data to classifCollection to then be able to delete erroneous classifications
     add_info_to_each_classification(stain_and_core=True)
@@ -194,22 +208,26 @@ def correct_known_mistakes(db, classifCollection):
 def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annotations=False):
     # can add different pieces of information to classification database. This is because the order of different pieces
     # of information is different so important to be able to select what piece goes when
-    print "adding core-level info to each classification, and adding answers as top-level fields"
+    print "adding core-level info to each classification, and/or adding answers as top-level fields"
     #### add the cleaned metadata.id_no and stain_type_lower to each classification
-    for cln in classifCollection.find({"stain_type_lower": "test mre11"}):
+    for cln in classifCollection.find({}):
         # get metadata.id_no
         sj = subjectsCollection.find({"_id": cln["subject_ids"][0]})
         if sj.count() == 1:
             dat = sj.next()
             if stain_and_core:
-                classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"id_no": dat["metadata"]["id_no"]}})
-                classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"stain_type_lower": dat["metadata"]["stain_type_lower"]}})
+                classifCollection.update_one({"_id": cln["_id"]}, {"$set": {
+                    "id_no": dat["metadata"]["id_no"],
+                    "stain_type_lower": dat["metadata"]["stain_type_lower"]
+                }})
             if hasExpert:
                 classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": dat["hasExpert"]}})
         else:
             if stain_and_core:
-                classifCollection.update_one({"_id": cln["_id"]},{"$set": {"id_no": None}})
-                classifCollection.update_one({"_id": cln["_id"]},{"$set": {"stain_type_lower": None}})
+                classifCollection.update_one({"_id": cln["_id"]},{"$set": {
+                    "id_no": None,
+                    "stain_type_lower": None
+                }})
             if hasExpert:
                 classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": False}})
         if annotations:
@@ -220,12 +238,13 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
                 "intensity": cln["annotations"][2]['a-3']
             }})
 
+
 if __name__ == "__main__":
     subjectsCollection, classifCollection, dbConnection = user_aggregation.pymongo_connection_open()
     # add_lowercase_metadata_staintype(subjectsCollection)
-    # correct_known_mistakes(subjectsCollection,classifCollection)
+    correct_known_mistakes(subjectsCollection,classifCollection)
     # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
-    add_info_to_each_classification(hasExpert=False, annotations=False, stain_and_core=True)
-    # add_indices(classifCollection,subjectsCollection)
-    # sanity_checks_on_db(subjectsCollection)
+    add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
+    add_indices(classifCollection,subjectsCollection)
+    sanity_checks_on_db(subjectsCollection)
     print "done with rto_mongodb_utils.py"
