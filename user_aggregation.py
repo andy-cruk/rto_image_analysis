@@ -5,9 +5,8 @@ the method used here, which aggregates all classifications for each subject (=se
 feature that should not be used for heavy lifting.
 
 This script generates a number of dataframes in order
-cln         classifications: one row per subject (aggregated over users)
+cln         classifications: one row per subject (aggregated over users, or not aggregated at all)
 cores       one row per core (aggregated over subjects)
-rhoBoot     one row per number of users included in bootstrap; compares expert to users
 '''
 __author__ = 'Peter'
 from pymongo import MongoClient
@@ -29,22 +28,24 @@ import rto_mongodb_utils
 import math
 
 # USER OPTIONS
+# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5,
 stain = "p21".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
 # aggregate = 'segment_aggregation'
 bootstrap = True       # whether to bootstrap
+
 if (aggregate == "ignoring_segments") & (not bootstrap):
     numberOfClassificationsPerCore = np.array([0])  # will draw X classifications per core with replacement. Only used if aggregate = 'ignoring_segments'. Set to zero to include all; give a range to test multiple numbers
     samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 elif (aggregate == "ignoring_segments") & bootstrap:
     numberOfClassificationsPerCore = np.array([1,2,3,5,7,10,15,20,30,40,50])
-    samplesPerNumberOfUsers = 10000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+    samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 elif (aggregate == "segment_aggregation") & (not bootstrap):
     numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Only used if aggregate = 'segment_aggregation'. Set to 0 to not restrict number of users
     samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 elif (aggregate == "segment_aggregation") & bootstrap:
     numberOfUsersPerSubject = np.array([1,2,3,4,5,6]) # will loop over each of the number of users and calculate Spearman rho. Only used if aggregate = 'segment_aggregation'. Set to 0 to not restrict number of users
-    samplesPerNumberOfUsers = 10000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
+    samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 
 
 
@@ -72,8 +73,6 @@ def pymongo_connection_open():
     classifCollection = dbConnection[rto_mongodb_utils.currentDB].classifications
     # nSj = subjectsCollection.count()
     # nCl = classifCollection.count()
-    # print 'Number of subjects:\t\t\t', nSj
-    # print 'Number of classifications:\t', nCl
     return subjectsCollection, classifCollection, dbConnection
 def pymongo_connection_close():
     """Close pymongo connection"""
@@ -208,7 +207,7 @@ def sj_in_expert_core(coreID,coresGS):
     """
     for ixGS,rowGS in coresGS.iterrows():
         # if the current row in coresGS is the one that matches the coreID, return True
-        if str(int(rowGS.loc["Core ID"])) in coreID:
+        if str(int(rowGS.loc["coreID"])) in coreID:
             return True
     # if you get to this part of the code, no match has been found in rowGS
     return False
@@ -516,8 +515,7 @@ def write_bootstrap_single_to_mongodb(dat,N):
     :param N: number of users used to calculate aggregate
     :return:
     """
-    con = MongoClient("localhost", 27017)
-    db = con.results.bootstraps
+    db = dbConnection.results.bootstraps
     result = db.insert_one({
                 'stain':stain,
                 'nUsersPerSubject':N,
@@ -559,7 +557,7 @@ def user_vs_expert_rho(cores):
     rhoSQSadditive = cores['expSQSadditive'].corr(cores.aggregateSQSCorrectedAdditive,method='spearman')
     qwkIntensity = qwk.quadratic_weighted_kappa(cores.expIntensity, np.round(cores.aggregateIntensityCorrected), min_rating=0, max_rating=3)
     #There's a value consistently showing up in these calculations - must be something wrong. Always -0.378085328319
-    if (rhoSQS < -0.35) & (rhoSQS > -0.40):
+    if (rhoSQS < -0.378085328310) & (rhoSQS > -0.378085328320):
         cores.to_pickle('WEIRD_rhoSQS.pkl')
         raise Exception('check out the cores dataframe')
 
@@ -575,7 +573,7 @@ def percentage_to_category(percentages):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100],[0,12.5,37.5,62.5,85,97.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('p53','ki67'):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,50,75,100],[0,5,17.5,37.5,62.5,87.5]]).T,columns=("category","percentage","middle_of_bin"))
-    elif stain in ('hdac4_membrane','ck56','ck20'):
+    elif stain in ('hdac4_membrane','ck5','ck20'):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,65,95,100],[0,5,17.5,45,80,97.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('ctip_cytoplasm','hdac4_cytoplasm','dck_cytoplasm'):
         raise Exception('unclear how to go from percentage to present/absent')
@@ -681,19 +679,27 @@ def run_bootstrap_rho_ignoring_segments():
     rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfClassificationsPerCore)
     rhoFull = np.zeros((len(numberOfClassificationsPerCore),samplesPerNumberOfUsers,5))
     ix = 0
-    clnAll = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=False)
+    clnAll = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=True)
+    dbBootstraps = dbConnection.results.bootstraps
     for N in numberOfClassificationsPerCore:
         t = time.time()
-        for iB in range(samplesPerNumberOfUsers):
+        # check how many bootstrap entries there are
+        bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': N, 'aggregate': aggregate}).count()
+        # either some samples remain, or 0 remain (can't be negative)
+        toDo = max(0, samplesPerNumberOfUsers - bootstrapCount)
+        print "Already",bootstrapCount,"bootstraps in database, doing",toDo,"more"
+        for iB in range(toDo):
             cores = cores_dataframe_fill_from_individual_classifications(cln=clnAll, nCl=N)
             cores = core_dataframe_split_core_id(cores)
             cores = core_dataframe_add_expert_scores(cores)
             cores = core_dataframe_add_corrected_SQS(cores)
             rho = user_vs_expert_rho(cores)
-            print "including",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time:',np.round(time.time()-t),'seconds'
+            print "including",N,"users; completed",iB+1,"out of",toDo,'. Elapsed time:',np.round(time.time()-t),'seconds'
             # write this iteration to mongodb
             write_bootstrap_single_to_mongodb(rho,N)
-        ix += 1
+            # check how many bootstrap entries there are
+            bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': N, 'aggregate': aggregate}).count()
+
 
 
 ########### FUNCTION EXECUTION
