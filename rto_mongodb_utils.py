@@ -77,8 +77,8 @@ def add_whether_subject_is_part_of_core_with_expert_data(db):
         subjectCursor = db.find(filter={'metadata.stain_type_lower':stain},no_cursor_timeout=True)
         # loop over each and check whether it has expert data
         for sj in subjectCursor:
-            hasExpert = user_aggregation.sj_in_expert_core(sj["metadata"]["id_no"],coresGS=user_aggregation.coresGS)
-            db.update_one({'_id':sj['_id']},{'$set':{'hasExpert':hasExpert}},upsert=False)
+            hasExpert = user_aggregation.sj_in_expert_core(sj["metadata"]["id_no"], coresGS=user_aggregation.coresGS)
+            db.update_one({'_id': sj['_id']}, {'$set': {'hasExpert': hasExpert}}, upsert=False)
 
 
 def sanity_checks_on_db(db):
@@ -209,8 +209,8 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
     # can add different pieces of information to classification database. This is because the order of different pieces
     # of information is different so important to be able to select what piece goes when
     print "adding core-level info to each classification, and/or adding answers as top-level fields"
-    #### add the cleaned metadata.id_no and stain_type_lower to each classification
-    for cln in classifCollection.find({}):
+    #### add the cleaned metadata.id_no and stain_type_lower to each classification that we have GS data for
+    for cln in classifCollection.find({"stain_type_lower": {"$in": user_aggregation.stains}}):
         # get metadata.id_no
         sj = subjectsCollection.find({"_id": cln["subject_ids"][0]})
         if sj.count() == 1:
@@ -242,7 +242,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
 if __name__ == "__main__":
     subjectsCollection, classifCollection, dbConnection = user_aggregation.pymongo_connection_open()
     # add_lowercase_metadata_staintype(subjectsCollection)
-    correct_known_mistakes(subjectsCollection,classifCollection)
+    # correct_known_mistakes(subjectsCollection,classifCollection)
     # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
     add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
     add_indices(classifCollection,subjectsCollection)

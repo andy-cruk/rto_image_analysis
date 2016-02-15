@@ -29,7 +29,7 @@ import math
 
 # USER OPTIONS
 # currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5,
-stain = "p21".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
 # aggregate = 'segment_aggregation'
 bootstrap = True       # whether to bootstrap
@@ -333,7 +333,7 @@ def core_dataframe_fill(cln):
     # add category for aggregateWeighted
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted)[0])
     return cores
-def cores_dataframe_fill_from_individual_classifications(cln,nCl=0):
+def cores_dataframe_fill_from_individual_classifications(cln, nCl=0):
     """
     Takes a dataframe with classifications from classifications_dataframe_fill_individual_classifications() and
     calculates scores for each core
@@ -508,7 +508,7 @@ def core_dataframe_write_to_mongodb(cores):
         db.update_one({'stain': core[aggregate+'.stain'], "coreID": core[aggregate+'.coreID']}, {"$set":{'stain': core[aggregate+'.stain'], "coreID": core[aggregate+'.coreID']}}, upsert=True)
         # write in this method's data
         db.update_one({'stain': core[aggregate+'.stain'], "coreID": core[aggregate+'.coreID']}, {"$set": core.to_dict()})
-def write_bootstrap_single_to_mongodb(dat,N):
+def write_bootstrap_single_to_mongodb(dat, N):
     """ Takes a series of correlation values and writes them to mongodb
 
     :param dat: 1D array of values; see user_vs_expert_rho output
@@ -538,7 +538,7 @@ def get_core_ids(cln):
         if c not in cores:
             cores.append(c)
     return cores
-def normalise_dataframe_by_ix(df,divideByColumn,columnsToDivide):
+def normalise_dataframe_by_ix(df,divideByColumn, columnsToDivide):
     """Returns dataframe with one set of columns divided by one of the columns in the dataframe.
     provide INDICES, not COLUMN NAMES. The columnsToDivide will be divided by divideByColumn
     """
