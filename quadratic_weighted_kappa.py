@@ -63,6 +63,9 @@ def quadratic_weighted_kappa(rater_a, rater_b, min_rating=None, max_rating=None)
     isNaN = np.logical_or(np.isnan(rater_a), np.isnan(rater_b))
     rater_a = rater_a[~isNaN]
     rater_b = rater_b[~isNaN]
+    # if all are nan, return nan
+    if sum(isNaN) == len(rater_a):
+        return np.nan
     # end of Peter edits
     rater_a = np.array(rater_a, dtype=int)
     rater_b = np.array(rater_b, dtype=int)
