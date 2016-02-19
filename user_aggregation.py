@@ -29,9 +29,9 @@ import math
 
 # USER OPTIONS
 # currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5,
-stain = "mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
-aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
-# aggregate = 'segment_aggregation'
+stain = "p21".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+# aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
+aggregate = 'segment_aggregation'
 bootstrap = True       # whether to bootstrap
 
 if (aggregate == "ignoring_segments") & (not bootstrap):
@@ -150,6 +150,7 @@ def classifications_dataframe_fill(numberOfUsersPerSubject,skipNonExpertClassifi
                     cl.loc[clIx, "stainStrong"] += 1
             elif cancer == 2:  # if no cancer
                 continue
+
         clIx += 1
     # convert numbers to int (otherwise they're stored as object)
     cl = cl.convert_objects(convert_numeric=True)
@@ -218,13 +219,6 @@ def classifications_dataframe_load(fn=classificationsDataframeFn):
     """load dataframe and return pandas dataframe"""
     cln = pd.read_pickle(fn)
     return cln
-def plot_classifications(cln):
-    """example commands of how to work with a pandas dataframe"""
-    # select only classifications that have someone saying it's cancer and return all columns
-    print cln[cln['nCancer'] > 0]
-    # combine selection criteria and select columns across a range, then plot histogram
-    cln.loc[(cln['nCancer'] > 0.2) & (cln['noStain'] != 0), 'noStain':'<100%Stain'].hist(bins=20)
-    plt.show()
 def plot_weighted_vs_unweighted_stain(cores):
     """Plots scores for aggregate staining intensity and proportion for weighted vs unweighted instance; weighting happens across subjects based on their proportion of people who said it contained cancer
     """
@@ -410,36 +404,42 @@ def core_dataframe_add_corrected_SQS(cores):
     PredInt = PredProp.copy()
     # prepare the sklearn function
     clf = linear_model.LinearRegression()
-    # prepare the sklearn pipeline. There's an imputer in case there's missing values - i.e. all subjects saying no cancer and
-    # therefore not providing IHC scores
-    p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
-    # use cross_val_predict to predict the values based on 10-fold cross-validation
-    PredProp[mask] = cv.cross_val_predict(p,Xprop,Yprop,cv=10)
-    p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
-    PredInt[mask] = cv.cross_val_predict(p,Xint,Yint,cv=10)
-    # apply relationship to cores not done by experts only if they exist
-    if np.sum(~mask)>0:
-        # fit expert data
+    if np.all(~np.isfinite(Xprop)):  # if all values are NaN
+        cores["aggregatePropCorrected"] = np.nan
+        cores["aggregateIntensityCorrected"] = np.nan
+        cores["aggregatePropCorrectedCategory"] = np.nan
+        cores["aggregateSQSCorrectedAdditive"] = np.nan
+        cores["aggregateSQSCorrected"] = np.nan
+    else:
+        # prepare the sklearn pipeline. There's an imputer in case there's missing values - i.e. all subjects saying no cancer and
+        # therefore not providing IHC scores
         p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
-        p.fit(X=Xprop,y=Yprop)
-        PredProp[~mask] = p.predict(cores.aggregatePropWeighted[~mask][:,np.newaxis])
-        # and again for intensity
+        # use cross_val_predict to predict the values based on 10-fold cross-validation
+        PredProp[mask] = cv.cross_val_predict(p,Xprop,Yprop,cv=10)
         p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
-        p.fit(X=Xint,y=Yint)
-        PredInt[~mask] = p.predict(cores.aggregateIntensityWeighted[~mask][:,np.newaxis])
+        PredInt[mask] = cv.cross_val_predict(p,Xint,Yint,cv=10)
+        # apply relationship to cores not done by experts only if they exist
+        if np.sum(~mask)>0:
+            # fit expert data
+            p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
+            p.fit(X=Xprop,y=Yprop)
+            PredProp[~mask] = p.predict(cores.aggregatePropWeighted[~mask][:,np.newaxis])
+            # and again for intensity
+            p = pipeline.Pipeline([('imputer', Imputer(strategy='mean', missing_values='NaN')),('classifier', clf),])
+            p.fit(X=Xint,y=Yint)
+            PredInt[~mask] = p.predict(cores.aggregateIntensityWeighted[~mask][:,np.newaxis])
 
-    # filter any scores outside range
-    np.clip(PredProp,0,100,PredProp)
-    np.clip(PredInt,0,3,PredInt)
-    # calculate product score
-    PredSQS = PredProp*PredInt
-    # add predicted/adjusted scores to cores
-    cores["aggregatePropCorrected"] = PredProp
-    cores["aggregateIntensityCorrected"] = PredInt
-    cores["aggregatePropCorrectedCategory"] = percentage_to_category(cores["aggregatePropCorrected"])[0]
-    cores["aggregateSQSCorrectedAdditive"] = cores["aggregateIntensityCorrected"] + cores["aggregatePropCorrectedCategory"]
-    cores["aggregateSQSCorrected"] = PredSQS
-
+        # filter any scores outside range
+        np.clip(PredProp,0,100,PredProp)
+        np.clip(PredInt,0,3,PredInt)
+        # calculate product score
+        PredSQS = PredProp*PredInt
+        # add predicted/adjusted scores to cores
+        cores["aggregatePropCorrected"] = PredProp
+        cores["aggregateIntensityCorrected"] = PredInt
+        cores["aggregatePropCorrectedCategory"] = percentage_to_category(cores["aggregatePropCorrected"])[0]
+        cores["aggregateSQSCorrectedAdditive"] = cores["aggregateIntensityCorrected"] + cores["aggregatePropCorrectedCategory"]
+        cores["aggregateSQSCorrected"] = PredSQS
 
     return cores
 def core_dataframe_split_core_id(cores):
@@ -484,15 +484,16 @@ def core_dataframe_write_to_excel(cores):
     },inplace=True)
     # write separate excel file for this stain
     c.to_excel(excel_writer=("results\RtO_results_"+stain+"_"+aggregate+"_clean.xlsx"))
-    # write into a single aggregate excel doc with multiple sheets.
-    # copied from http://stackoverflow.com/questions/20219254/how-to-write-to-an-existing-excel-file-without-overwriting-data
-    aggregateFile = "results\RtO_results_clean.xlsx"
-    book = load_workbook(aggregateFile)
-    writer = pd.ExcelWriter(aggregateFile, engine='openpyxl')
-    writer.book = book
-    writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
-    c.to_excel(excel_writer=writer,sheet_name=stain+aggregate)
-    writer.save()
+    # # write into a single aggregate excel doc with multiple sheets. Disabled for now because it's not useful
+    # # and there's a problem with load_workbook seeing xlsx files as zip files if they are created through context menu in explorer
+    # # copied from http://stackoverflow.com/questions/20219254/how-to-write-to-an-existing-excel-file-without-overwriting-data
+    # aggregateFile = "results\RtO_results_clean.xlsx"
+    # book = load_workbook(aggregateFile)
+    # writer = pd.ExcelWriter(aggregateFile, engine='openpyxl')
+    # writer.book = book
+    # writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+    # c.to_excel(excel_writer=writer,sheet_name=stain+aggregate)
+    # writer.save()
 def core_dataframe_write_to_mongodb(cores):
     """ Inserts the records.
 
@@ -588,7 +589,7 @@ def percentage_to_category(percentages):
             # might be a nan if user did not indicate cancer
             if not math.isnan(percentages[iP]):
                 categ[iP] = min([x["category"] for _,x in transform.iterrows() if percentages[iP] <= x["percentage"]])
-        return (categ, transform)
+        return categ, transform
 def category_to_percentage(categories):
     """NOTE: the response IDs in annotations[1]["a-2"] do not correspond to the categories expressed in percentage_to_category(),
     but are 1 higher. So when feeding them to this function, make sure to subtract 1 to make the range 0 to 5.
@@ -648,36 +649,28 @@ def run_full_cores():
     core_dataframe_write_to_excel(cores)
     return (cores,cln)
 def run_bootstrap_rho_segment_aggregation():
-    # # loop over all requested version of numberOfUsersPerSubject for samplesPerNumberOfUsers times
-    rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfUsersPerSubject)
-    rhoFull = np.zeros((len(numberOfUsersPerSubject),samplesPerNumberOfUsers,5))
+    dbBootstraps = dbConnection.results.bootstraps
     ix = 0
     for N in numberOfUsersPerSubject:
         rho = np.zeros([samplesPerNumberOfUsers,5])
         t = time.time()
-        for iB in range(samplesPerNumberOfUsers):
+        bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': N, 'aggregate': aggregate}).count()
+        # either some samples remain, or 0 remain (can't be negative)
+        toDo = max(0, samplesPerNumberOfUsers - bootstrapCount)
+        print "Already",bootstrapCount,"bootstraps in database, doing",toDo,"more"
+        for iB in range(toDo):
             cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
             cln = cln_add_columns_aggregating_stain(cln)
             cores = core_dataframe_fill(cln)
             cores = core_dataframe_split_core_id(cores)
             cores = core_dataframe_add_expert_scores(cores)
             cores = core_dataframe_add_corrected_SQS(cores)
-            rho[iB,:] = user_vs_expert_rho(cores)
-            print "including",N,"users; completed",iB+1,"out of",samplesPerNumberOfUsers,'. Elapsed time for this bootstrap:',np.round(time.time()-t),'seconds'
+            rho = user_vs_expert_rho(cores)
+            print "including",N,"users; completed",iB+1,"out of",toDo,'. Elapsed time for this bootstrap:',np.round(time.time()-t),'seconds'
             # write this iteration to mongodb
-            write_bootstrap_single_to_mongodb(rho[iB,:],N)
-        # store all rank correlations in 3D matrix to be able to calculate intervals
-        rhoFull[ix,:,:] = rho
-        # store the 4 correlations averaged across all samples
-        rhoBoot.loc[N,:] = np.nanmean(rho,axis=0)
-        # save intermediate results
-        np.save(stain+"bootstrap_full.npy",rhoFull)
-        rhoBoot.to_pickle(stain+"bootstrap.pkl")
+            write_bootstrap_single_to_mongodb(rho,N)
         ix += 1
 def run_bootstrap_rho_ignoring_segments():
-    # # loop over all requested version of numberOfClassificationsPerCore for samplesPerNumberOfUsers times
-    rhoBoot = pd.DataFrame(data=np.nan,columns=("rhoProp","rhoIntensity","rhoSQS","rhoSQSadditive","qwkIntensity"),index=numberOfClassificationsPerCore)
-    rhoFull = np.zeros((len(numberOfClassificationsPerCore),samplesPerNumberOfUsers,5))
     ix = 0
     clnAll = classifications_dataframe_fill_individual_classifications(skipNonExpertClassifications=True)
     dbBootstraps = dbConnection.results.bootstraps

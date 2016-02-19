@@ -17,7 +17,7 @@ from pymongo import MongoClient
 
 # settings
 aggregate = ['ignoring_segments', 'segment_aggregation']
-aggregate = aggregate[0]
+aggregate = aggregate[1]
 
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
@@ -60,9 +60,10 @@ def scatter_for_each_stain(xdat=aggregate+'.expSQS', ydat=aggregate+'.aggregateS
     """
 
     df = load_cores_into_pandas()
+    print df
     # ndarray of strings
     stains = df.stain.unique()
-    # assume 3 columns for subplot
+    # make square set of subplots
     size = np.ceil(np.sqrt(len(stains))).astype(int)
     fig,axes = plt.subplots(nrows=size,ncols=size,sharex=True,sharey=True)
     axes = axes.flatten()
@@ -147,9 +148,8 @@ def scatter_performance_single_graph(xcorr=(aggregate+'.expProp', aggregate+'.ag
     return r,ci,f,ax
 
 
-def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={}, measure=aggregate+'.Hscore', nUsersPerSubject=range(1,5), addCI=True):
+def plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(mongoFilter={'aggregate':aggregate}, measure='Hscore', nUsersPerSubject=range(1,50), addCI=True):
     """
-    yet to implement how to make sure all datapoints are plotted using same number of bootstraps, and how to remove datapoints that have insufficient bootstraps.
     """
     # load bootstraps
     db = MongoClient("localhost", 27017)
@@ -165,21 +165,28 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
         # calculate mean and CI for each requested nUsersPerSubject for this stain
         means = np.zeros(len(nUsersPerSubject))*np.nan
         CI = np.zeros((2,len(nUsersPerSubject)))*np.nan
-        for iN,N in enumerate(nUsersPerSubject):
+        for iN, N in enumerate(nUsersPerSubject):
             # get vector with bootstrapped data for this stain, number of users and measure
             # return iN,N,means,CI,df,stain,measure
             dat = df.loc[(df.nUsersPerSubject==N) & (df.stain==stain),measure]
-            means[iN] = dat.mean()
-            CI[0,iN] = np.percentile(dat,2.5)-means[iN]
-            CI[1,iN] = np.percentile(dat,97.5)-means[iN]
-            print min(dat)
+            if len(dat)>100:  # if sufficient records found
+                means[iN] = dat.mean()
+                CI[0,iN] = np.nanpercentile(dat,2.5)-means[iN]
+                CI[1,iN] = np.nanpercentile(dat,97.5)-means[iN]
+                print dat
+            else:
+                means[iN] = np.nan
+                CI[:,iN] = np.nan
         # plot this stain into graph with or without error bar
         if addCI:
             ax.errorbar(x=nUsersPerSubject,y=means,yerr=np.abs(CI),label=stain)
         else:
             ax.plot(nUsersPerSubject,means,label=stain)
+        # add scatter to put little dots where means are
+        ax.scatter(nUsersPerSubject,means)
     ax.set_xlabel('number of users included per segment')
     ax.set_ylabel(measure)
+    ax.set_xlim(left = min(nUsersPerSubject)-1, right=max(nUsersPerSubject)+1)
     ax.legend()
 
     plt.show()
@@ -188,8 +195,8 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
 
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
-    # f, ax = scatter_for_each_stain()
-    # r, ci, f, ax = scatter_performance_single_graph()
-    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph({"stain":"mre11"})
+    f, ax = scatter_for_each_stain()
+    r, ci, f, ax = scatter_performance_single_graph()
+    # f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph()
 
     print "done with core_level_plots.py"
