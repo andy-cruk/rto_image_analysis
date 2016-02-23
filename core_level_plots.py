@@ -17,7 +17,7 @@ from pymongo import MongoClient
 
 # settings
 aggregate = ['ignoring_segments', 'segment_aggregation']
-aggregate = aggregate[1]
+aggregate = aggregate[0]
 
 def plot_contribution_patterns():
     """ Irrespective of stain types, plot # of classifications over time as well as cumulative
@@ -173,7 +173,6 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
                 means[iN] = dat.mean()
                 CI[0,iN] = np.nanpercentile(dat,2.5)-means[iN]
                 CI[1,iN] = np.nanpercentile(dat,97.5)-means[iN]
-                print dat
             else:
                 means[iN] = np.nan
                 CI[:,iN] = np.nan
@@ -185,8 +184,11 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
         # add scatter to put little dots where means are
         ax.scatter(nUsersPerSubject,means)
     ax.set_xlabel('number of users included per segment')
-    ax.set_ylabel(measure)
-    ax.set_xlim(left = min(nUsersPerSubject)-1, right=max(nUsersPerSubject)+1)
+    ax.set_ylabel('accuracy on task (' + measure + ')')
+    # ax.set_xlim(left = min(nUsersPerSubject)-1, right=max(nUsersPerSubject)+10)
+    ax.set_ylim(bottom=0, top=1)
+    ax.grid(b=True, which='both', axis='y')
+    ax.set_xscale('log')
     ax.legend()
 
     plt.show()
@@ -195,8 +197,8 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
 
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
-    f, ax = scatter_for_each_stain()
-    r, ci, f, ax = scatter_performance_single_graph()
-    # f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph()
+    # f, ax = scatter_for_each_stain()
+    # r, ci, f, ax = scatter_performance_single_graph()
+    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
 
     print "done with core_level_plots.py"

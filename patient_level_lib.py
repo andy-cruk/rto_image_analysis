@@ -24,11 +24,10 @@ def load_cores_into_pandas(mongoFilter=None,projection=None,limit=0):
         mongoFilter = {}
     if projection is None:
         projection = {'_id':False}
-
     # get pymongo collection handle to cores database
     _,coll = get_cores_collection()
     results = coll.find(filter=mongoFilter,projection=projection).limit(limit)
-    df = pd.DataFrame(list(results))
+    df = pd.io.json.json_normalize(results)
     return df
 
 
