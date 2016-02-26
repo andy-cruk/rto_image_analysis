@@ -30,15 +30,15 @@ import math
 # USER OPTIONS
 # currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5,
 stain = "p21".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
-# aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
-aggregate = 'segment_aggregation'
+aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
+# aggregate = 'segment_aggregation'
 bootstrap = True       # whether to bootstrap
 
 if (aggregate == "ignoring_segments") & (not bootstrap):
     numberOfClassificationsPerCore = np.array([0])  # will draw X classifications per core with replacement. Only used if aggregate = 'ignoring_segments'. Set to zero to include all; give a range to test multiple numbers
     samplesPerNumberOfUsers = 1       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 elif (aggregate == "ignoring_segments") & bootstrap:
-    numberOfClassificationsPerCore = np.array([1,2,3,5,7,10,15,20,30,40,50])
+    numberOfClassificationsPerCore = np.array([1,2,4,8,16,32,64,128,256,512,1024])
     samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
 elif (aggregate == "segment_aggregation") & (not bootstrap):
     numberOfUsersPerSubject = np.array([0]) # will loop over each of the number of users and calculate Spearman rho. Only used if aggregate = 'segment_aggregation'. Set to 0 to not restrict number of users
@@ -404,7 +404,7 @@ def core_dataframe_add_corrected_SQS(cores):
     PredInt = PredProp.copy()
     # prepare the sklearn function
     clf = linear_model.LinearRegression()
-    if np.all(~np.isfinite(Xprop)):  # if all values are NaN
+    if np.all(~np.isfinite(Xprop)) or (np.ma.size(Xprop,axis=1) == 0) or (np.ma.size(Xint, axis=1) == 0):  # if all values are NaN, or no columns
         cores["aggregatePropCorrected"] = np.nan
         cores["aggregateIntensityCorrected"] = np.nan
         cores["aggregatePropCorrectedCategory"] = np.nan

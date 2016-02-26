@@ -183,7 +183,7 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
             ax.plot(nUsersPerSubject,means,label=stain)
         # add scatter to put little dots where means are
         ax.scatter(nUsersPerSubject,means)
-    ax.set_xlabel('number of users included per segment')
+    ax.set_xlabel('number of users included')
     ax.set_ylabel('accuracy on task (' + measure + ')')
     # ax.set_xlim(left = min(nUsersPerSubject)-1, right=max(nUsersPerSubject)+10)
     ax.set_ylim(bottom=0, top=1)
