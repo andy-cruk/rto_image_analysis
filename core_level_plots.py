@@ -159,6 +159,9 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
     stains = df.stain.unique()
     # set up figure
     f,ax = plt.subplots(1)
+    # set up offset for the stains. Should be proportional?
+    offsetRange = np.array([0.9, 1.1])
+    offsets = np.linspace(offsetRange[0], offsetRange[1], len(stains))
     # loop over each stain and plot
     for iStain,stain in enumerate(stains):
         # calculate mean and CI for each requested nUsersPerSubject for this stain
@@ -177,11 +180,11 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
                 CI[:,iN] = np.nan
         # plot this stain into graph with or without error bar
         if addCI:
-            ax.errorbar(x=nUsersPerSubject,y=means,yerr=np.abs(CI),label=stain)
+            ax.errorbar(x=nUsersPerSubject*offsets[iStain],y=means,yerr=np.abs(CI),label=stain)
         else:
-            ax.plot(nUsersPerSubject,means,label=stain)
+            ax.plot(nUsersPerSubject*offsets[iStain],means,label=stain)
         # add scatter to put little dots where means are
-        ax.scatter(nUsersPerSubject,means)
+        ax.scatter(nUsersPerSubject*offsets[iStain],means)
     ax.set_xlabel('number of users included')
     ax.set_ylabel('accuracy on task (' + measure + ')')
     # ax.set_xlim(left = min(nUsersPerSubject)-1, right=max(nUsersPerSubject)+10)
@@ -196,8 +199,8 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
 
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
-    f, ax = scatter_for_each_stain()
+    # f, ax = scatter_for_each_stain()
     # r, ci, f, ax = scatter_performance_single_graph()
-    # f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
+    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
 
     print "done with core_level_plots.py"
