@@ -8,10 +8,19 @@ def get_cores_collection():
     """
     db = MongoClient("localhost", 27017)
     coresCollection = db.results.cores
-    return (db,coresCollection)
+    return (db, coresCollection)
 
 
-def load_cores_into_pandas(mongoFilter=None,projection=None,limit=0):
+def get_patients_collection():
+    """ Opens a connection to the 'patients' collection in 'results' database through pymongo
+    :return: (pymongo database connection,reference to 'patients' collection)
+    """
+    db = MongoClient("localhost", 27017)
+    patientsCollection = db.results.patients
+    return (db, patientsCollection)
+
+
+def load_cores_into_pandas(mongoFilter=None, projection=None, limit=0):
     """ Build a pandas dataframe for all cores by first setting up connection to the collection through get_cores_collection,
     and then loading the requested cores based on mongoFilter.
     :param mongoFilter: filter directly passed to pymongo 'find'. e.g. {'stain':'p21'}
@@ -23,15 +32,15 @@ def load_cores_into_pandas(mongoFilter=None,projection=None,limit=0):
     if mongoFilter is None:
         mongoFilter = {}
     if projection is None:
-        projection = {'_id':False}
+        projection = {'_id': False}
     # get pymongo collection handle to cores database
     _,coll = get_cores_collection()
-    results = coll.find(filter=mongoFilter,projection=projection).limit(limit)
+    results = coll.find(filter=mongoFilter, projection=projection).limit(limit)
     df = pd.io.json.json_normalize(results)
     return df
 
 
-def combine_cores_per_patient(df=load_cores_into_pandas(),function=np.nanmean,stain='p21'):
+def combine_cores_per_patient(df=load_cores_into_pandas(), function=np.nanmean, stain='p21'):
     """ Takes a dataframe with core-level data, loads the lookup table to see what cores belong to each patient, and combines
     all attributes of those cores using a summarising function specified in the function call.
     :param df: pandas dataframe like the one returned by load_cores_into_pandas (cores*attributes)
