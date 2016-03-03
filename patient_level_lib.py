@@ -34,24 +34,24 @@ def load_cores_into_pandas(mongoFilter=None, projection=None, limit=0):
     if projection is None:
         projection = {'_id': False}
     # get pymongo collection handle to cores database
-    _,coll = get_cores_collection()
+    _, coll = get_cores_collection()
     results = coll.find(filter=mongoFilter, projection=projection).limit(limit)
     df = pd.io.json.json_normalize(results)
     return df
 
 
-def combine_cores_per_patient(df=load_cores_into_pandas(), function=np.nanmean, stain='p21'):
-    """ Takes a dataframe with core-level data, loads the lookup table to see what cores belong to each patient, and combines
+def combine_cores_per_patient(function=np.nanmean, aggregate='ignoring_segments'):
+    """ Takes all data from the 'cores' database, loads the lookup table to see what cores belong to each patient, and combines
     all attributes of those cores using a summarising function specified in the function call.
-    :param df: pandas dataframe like the one returned by load_cores_into_pandas (cores*attributes)
     :param function: function that takes an array of values and returns a single number to summarise those values (to be applied across cores from same patient)
-    :param stain: what stain to summarise for
-    :return: a pandas dataframe with a column indicating patient ID (one row per patient) and all the same columns as df
+    :param aggregate: what method of aggregation to read from in the cores database
+    :return: None
     """
-    pass
+    # get data from 'cores' database
+    df = load_cores_into_pandas(projection=['coreID', 'stain', aggregate])
     # load lookup table
-
-    # set up df to hold patient-level data (make sure one column called 'patient' is correct as it might be used to join multiple dfs when comparing between stains
-
-    # loop over each patient and compute summary scores across cores
+    lut = pd.read_excel('info/patient_core_LUT_encrypted.xlsx')
+    # merge the two, yielding a dataframe the size of df but now with patient ID as extra column
+    # In this df, the 'core' and 'coreID' are not unique; there's about 5 entries for each core or so (5k entries on 1k core IDs)
+    df2 = df.merge(right=lut, how='left', left_on='coreID', right_on='core')
 
