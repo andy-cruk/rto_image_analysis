@@ -17,7 +17,7 @@ def get_patients_collection():
     """
     db = MongoClient("localhost", 27017)
     patientsCollection = db.results.patients
-    return (db, patientsCollection)
+    return db, patientsCollection
 
 
 def load_cores_into_pandas(mongoFilter=None, projection=None, limit=0):
@@ -52,6 +52,60 @@ def combine_cores_per_patient(function=np.nanmean, aggregate='ignoring_segments'
     # load lookup table
     lut = pd.read_excel('info/patient_core_LUT_encrypted.xlsx')
     # merge the two, yielding a dataframe the size of df but now with patient ID as extra column
-    # In this df, the 'core' and 'coreID' are not unique; there's about 5 entries for each core or so (5k entries on 1k core IDs)
-    df2 = df.merge(right=lut, how='left', left_on='coreID', right_on='core')
+    # In this df, the 'core' and 'coreID' are not unique; There are 5k cores in the df, but only 1k unique coreIDs,
+    # and only about 300 unique patient_key. So every patient has 3 to 4 coreIDs, and each patient has about 15 cores in
+    # total on average. (numbers subject to change as more data becomes available)
+    df2 = df.merge(right=lut, how='left', left_on='coreID', right_on='core', sort=True, copy=False)
+    # drop some duplicate columns; after this use the columns 'core' and 'stain'.
+    df2.drop(['coreID', aggregate+'.stain', aggregate+'.core'], axis=1, inplace=True)
+    # we can use a pivot table to combine the data for each patient and each stain type, applying 'function' to the data
+    # from multiple cores
+    df3 = pd.pivot_table(df2,
+                         index=["patient_key"],
+                         values=[
+                             aggregate+'.aggregateSQSCorrected',
+                             aggregate+'.aggregateIntensityCorrected',
+                             aggregate+'.aggregatePropCorrected',
+                             aggregate+'.nClassificationsTotal',
+                             aggregate+'.expSQS',
+                             aggregate+'.expIntensity',
+                             aggregate+'.expProp',
+                         ],
+                         columns=['stain'],
+                         aggfunc=function
+                         )
+    # change all column types to string
+    df3.columns.names = ['measure', 'stain']
+    # write to excel with multi-index
+    df3.to_excel('results/patient_aggregated.xlsx')
+
+    #' WRITE TO MONGODB
+    # this is one way to flatten multi-index on columns
+    df3 = pd.DataFrame(df3.to_records())
+    # remove the aggregate method from each column header
+    df3.columns = [s.replace(aggregate+'.', '') for s in df3.columns]
+    # write to mongodb. If you ever wanted to get this out again, use pd.MultiIndex.from_tuples
+    _, coll = get_patients_collection()
+    # coll.delete_many({})  # empty it if necessary
+    coll.insert_many(df3.to_dict('records'))
+
+
+    # Junk that doesn't work because some of the hierarchical keys aren't strings, and I don't understand
+    # how to make them strings
+    #########################
+    # _, coll = get_patients_collection()
+    # # toInsert = df3.to_dict('records')
+    # toInsert = pd.DataFrame(df3.to_records())
+    # print toInsert
+    # coll.insert_many(df3.to_dict('records'))
+    # # collapse all entries that share patient_key and stain across cores.
+    # by_key_stain = df2.groupby(['patient_key', 'stain'])
+    # # dfpivot = pd.pivot_table(df2, index=['patient_key', 'stain'], aggfunc=np.nanmean)
+    # # print dfpivot['ignoring_segments.expSQS']
+    #
+    # df3 = pd.DataFrame(by_key_stain[aggregate+'.aggregateSQSCorrected'].apply(np.nanmean))
+    # print df3
+    # print pd.DataFrame(df3.to_records())['stain'].unique()
+
+
 
