@@ -45,7 +45,7 @@ def combine_cores_per_patient(function=np.nanmean, aggregate='ignoring_segments'
     all attributes of those cores using a summarising function specified in the function call.
     :param function: function that takes an array of values and returns a single number to summarise those values (to be applied across cores from same patient)
     :param aggregate: what method of aggregation to read from in the cores database
-    :return: None
+    :return: the dataframe with 1 patient per row
     """
     # get data from 'cores' database
     df = load_cores_into_pandas(projection=['coreID', 'stain', aggregate])
@@ -79,7 +79,7 @@ def combine_cores_per_patient(function=np.nanmean, aggregate='ignoring_segments'
     # write to excel with multi-index
     df3.to_excel('results/patient_aggregated.xlsx')
 
-    #' WRITE TO MONGODB
+    # WRITE TO MONGODB
     # this is one way to flatten multi-index on columns
     df3 = pd.DataFrame(df3.to_records())
     # remove the aggregate method from each column header
@@ -89,23 +89,7 @@ def combine_cores_per_patient(function=np.nanmean, aggregate='ignoring_segments'
     # coll.delete_many({})  # empty it if necessary
     coll.insert_many(df3.to_dict('records'))
 
-
-    # Junk that doesn't work because some of the hierarchical keys aren't strings, and I don't understand
-    # how to make them strings
-    #########################
-    # _, coll = get_patients_collection()
-    # # toInsert = df3.to_dict('records')
-    # toInsert = pd.DataFrame(df3.to_records())
-    # print toInsert
-    # coll.insert_many(df3.to_dict('records'))
-    # # collapse all entries that share patient_key and stain across cores.
-    # by_key_stain = df2.groupby(['patient_key', 'stain'])
-    # # dfpivot = pd.pivot_table(df2, index=['patient_key', 'stain'], aggfunc=np.nanmean)
-    # # print dfpivot['ignoring_segments.expSQS']
-    #
-    # df3 = pd.DataFrame(by_key_stain[aggregate+'.aggregateSQSCorrected'].apply(np.nanmean))
-    # print df3
-    # print pd.DataFrame(df3.to_records())['stain'].unique()
+    return df3
 
 
 

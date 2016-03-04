@@ -197,10 +197,55 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
     return f, ax
 
 
+def create_table_summary_stats_each_stain(aggregate=aggregate):
+    """ This will create an excel spreadsheet with text ready to be pasted into the paper as results table 2.
+    Will have one row per stain, and one column for each measure that is correlated between expert and users.
+    The easiest thing seems to be to write a pandas dataframe with strings indicating the calculated values
+
+    :param aggregate: which data to retrieve from the cores collection
+    """
+    # set up a list of tuples that contain (userMeasure, expMeasure, function) which will calculate FUNCTION on the
+    # userMeasure and expMeasure. first output of function needs to be what is used (e.g. r rather than p)
+
+    output = [
+        ('aggregateSQSCorrected', 'expSQS', stats.spearmanr),
+        ('aggregatePropCorrected', 'expProp', stats.spearmanr),
+        ('aggregateIntensityCorrected', 'expIntensity', qwk.quadratic_weighted_kappa)
+            ]
+    # load cores and remove aggregate prefix
+    df = load_cores_into_pandas(projection={'_id': False, aggregate: True})
+    df.columns = [s.replace(aggregate+'.','') for s in df.columns]
+
+    # prepare dataframe that will be saved to excel
+    stains = df.stain.unique()
+    dfout = pd.DataFrame(data=None, index=stains, columns=[s[0] for s in output])
+
+    # loop over each and store the function value + bootstrap CI
+    for stain in stains:  # for each stain
+        for iM in range(len(output)):  # for each measure
+            user, exp, fun = output[iM]
+            user = df.loc[df.stain == stain, user]
+            exp = df.loc[df.stain == stain, exp]
+            isFin = np.isfinite(user) & np.isfinite(exp)
+            user = user[isFin]
+            exp = exp[isFin]
+            # get first return value from function
+            if fun.__name__ == 'spearmanr':
+                score = fun(user, exp)[0]
+                ci = bootstrap.ci((user, exp), statfunction=fun, method='pi')[:, 0]
+            elif fun.__name__ == 'quadratic_weighted_kappa':
+                score = fun(user, exp)
+                ci = bootstrap.ci((user, exp), statfunction=fun, method='pi')
+            dfout.loc[stain, output[iM][0]] = {"%.2f"}.format(score) + '(' + {"%.2f"}.format(ci[0]) + ', ' + {"%.2f"}.format(ci[1])
+            print dfout
+
+
+
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
     # f, ax = scatter_for_each_stain()
     # r, ci, f, ax = scatter_performance_single_graph()
-    f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
+    # f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
+    create_table_summary_stats_each_stain()
 
     print "done with core_level_plots.py"
