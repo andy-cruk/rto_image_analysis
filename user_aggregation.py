@@ -27,9 +27,12 @@ import quadratic_weighted_kappa as qwk
 import rto_mongodb_utils
 import math
 
+pd.set_option('display.max_columns', 500)
+pd.set_option('expand_frame_repr', False)
+
 # USER OPTIONS
 # currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5,
-stain = "rad50".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+stain = "test mre11".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
 # aggregate = 'segment_aggregation'
 bootstrap = True       # whether to bootstrap

@@ -26,24 +26,25 @@ def plot_contribution_patterns():
     :return: figure handle,axis handles
     """
     _,classifCollection,_ = pymongo_connection_open()
-    pmCursor = classifCollection.find({},projection={'_id':False,'updated_at':True})
+    pmCursor = classifCollection.find({}, projection={'_id': False,'updated_at': True})
     # list comprehension to end up with a list of datetimes
     dat = [x['updated_at'] for x in list(pmCursor)]
     # sort the list
     dat.sort()
     counts = np.arange(0,len(dat))
-    f,ax = plt.subplots(nrows=2,sharex=True)
+    f,ax = plt.subplots(nrows=2, sharex=True)
     delta = max(dat)-min(dat)
-    ax[0].hist([dates.date2num(y) for y in dat],bins=delta.days,cumulative=False,histtype='step',log=True)
+    ax[0].hist([dates.date2num(y) for y in dat], bins=delta.days, cumulative=False, histtype='step', log=True)
     ax[1].plot(dat,counts)
     ax[1].xaxis.set_major_formatter(dates.DateFormatter('%m/%y'))
-    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,3),bymonthday=1))
-    ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13),bymonthday=1))
+    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,3), bymonthday=1))
+    ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13), bymonthday=1))
     ax[1].set_xlim(left = datetime.date(2014,10,01),right=max(dat))
-    ax[1].set_ylim(bottom = 10^2)
+    ax[0].set_ylim(bottom=1000, top=350000)
     ax[0].minorticks_on()
     ax[0].grid(b=True, axis='both', which='major', color='k', linestyle='-')
-    ax[0].grid(b=True, axis='y', which='minor', color='r', linestyle='--')
+    ax[1].grid(b=True, axis='x', which='major', color='k', linestyle='-')
+    # ax[0].grid(b=True, axis='y', which='minor', color='k', linestyle='--')
     ax[0].set_ylabel('daily contributions')
     ax[1].set_ylabel('cumulative contributions')
     ax[1].set_xlabel('date (month/year)')
@@ -155,43 +156,63 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
     coll = db.results.bootstraps
     results = coll.find(filter=mongoFilter)
     df = pd.DataFrame(list(results))
-    # ndarray of strings
+    # array of strings
     stains = df.stain.unique()
     # set up figure
-    f,ax = plt.subplots(1)
+    f, ax = plt.subplots(1)
     # set up offset for the stains. Should be proportional?
     offsetRange = np.array([0.9, 1.1])
     offsets = np.linspace(offsetRange[0], offsetRange[1], len(stains))
+    # get average number of classifications per subject/core
+    foo = list(db.results.cores.aggregate([
+        {"$group":
+            {
+                "_id": "$stain",
+                "nUsers": {"$avg": '$'+aggregate+'.nClassificationsTotal'}
+            }
+        }]))
+    # transform to sensible dict {'mre11': n, 'p53': n2} etc
+    avgNperStain = {}
+    for item in foo:
+        stain = item['_id']
+        avgNperStain[stain] = item['nUsers']
     # loop over each stain and plot
-    for iStain,stain in enumerate(stains):
+    for iStain, stain in enumerate(stains):
         # calculate mean and CI for each requested nUsersPerSubject for this stain
         means = np.zeros(len(nUsersPerSubject))*np.nan
         CI = np.zeros((2,len(nUsersPerSubject)))*np.nan
         for iN, N in enumerate(nUsersPerSubject):
+            # first check whether this stain has, on average, enough subjects looking at each image.
+            # If average number of users per image is lower than N, it should not show the bootstrap
+            # as it doesn't make sense (imagine pretending to have 1000 users when sampling from a pool of 20 actual users)
+            if avgNperStain[stain] < N:
+                continue
+
             # get vector with bootstrapped data for this stain, number of users and measure
             # return iN,N,means,CI,df,stain,measure
             dat = df.loc[(df.nUsersPerSubject==N) & (df.stain==stain),measure]
-            if len(dat)>100:  # if sufficient records found
+            if len(dat) > 100:  # if sufficient records found
                 means[iN] = dat.mean()
-                CI[0,iN] = np.nanpercentile(dat,2.5)-means[iN]
-                CI[1,iN] = np.nanpercentile(dat,97.5)-means[iN]
+                CI[0, iN] = np.nanpercentile(dat, 2.5)-means[iN]
+                CI[1, iN] = np.nanpercentile(dat, 97.5)-means[iN]
             else:
                 means[iN] = np.nan
-                CI[:,iN] = np.nan
+                CI[:, iN] = np.nan
         # plot this stain into graph with or without error bar
         if addCI:
-            ax.errorbar(x=nUsersPerSubject*offsets[iStain],y=means,yerr=np.abs(CI),label=stain)
+            ax.errorbar(x=nUsersPerSubject*offsets[iStain], y=means, yerr=np.abs(CI), label=stain)
         else:
-            ax.plot(nUsersPerSubject*offsets[iStain],means,label=stain)
+            ax.plot(nUsersPerSubject*offsets[iStain], means, label=stain)
         # add scatter to put little dots where means are
         ax.scatter(nUsersPerSubject*offsets[iStain],means)
     ax.set_xlabel('number of users included')
     ax.set_ylabel('accuracy on task (' + measure + ')')
     # ax.set_xlim(left = min(nUsersPerSubject)-1, right=max(nUsersPerSubject)+10)
     ax.set_ylim(bottom=0, top=1)
+    ax.set_xlim(left=0.8)
     ax.grid(b=True, which='both', axis='y')
     ax.set_xscale('log')
-    ax.legend()
+    ax.legend(loc=4)
 
     plt.show()
     return f, ax
@@ -234,18 +255,25 @@ def create_table_summary_stats_each_stain(aggregate=aggregate):
                 score = fun(user, exp)[0]
                 ci = bootstrap.ci((user, exp), statfunction=fun, method='pi')[:, 0]
             elif fun.__name__ == 'quadratic_weighted_kappa':
+                # round score to make integers
+                user = np.round(user).astype(int)
+                exp = np.round(exp).astype(int)
                 score = fun(user, exp)
                 ci = bootstrap.ci((user, exp), statfunction=fun, method='pi')
-            dfout.loc[stain, output[iM][0]] = {"%.2f"}.format(score) + '(' + {"%.2f"}.format(ci[0]) + ', ' + {"%.2f"}.format(ci[1])
-            print dfout
-
+            else:
+                raise Exception('no bootstrap defined for this error function')
+            # http://stackoverflow.com/questions/455612/limiting-floats-to-two-decimal-points
+            dfout.loc[stain, output[iM][0]] = "{0:.2f}".format(score) + ' (' + "{0:.2f}".format(ci[0]) + ', ' + "{0:.2f}".format(ci[1]) + ')'
+    print dfout
+    dfout.to_excel('results/summary_stats_'+aggregate+'.xlsx')
 
 
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
-    # f, ax = scatter_for_each_stain()
+    f, ax = scatter_for_each_stain()
     # r, ci, f, ax = scatter_performance_single_graph()
-    # f,ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
-    create_table_summary_stats_each_stain()
+    # f, ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(
+    #   nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
+    # create_table_summary_stats_each_stain()
 
     print "done with core_level_plots.py"
