@@ -68,11 +68,8 @@ def add_whether_subject_is_part_of_core_with_expert_data(db):
     :return: nothing
     """
     print 'adding for each segment whether it is part of an expert core'
-    # find stains with GS data; will also return folders and other files, so make sure folder is clean.
-    f = os.listdir('GS')
-    stains = [x.lstrip('GS_').rstrip('.xlsx') for x in f]
     # loop over each stain
-    for stain in stains:
+    for stain in user_aggregation.stains:
         print "adding expert tags for stain "+stain
         # get all entries in mongodb for this stain, returning only _id and id_no
         subjectCursor = db.find(filter={'metadata.stain_type_lower':stain},no_cursor_timeout=True)
@@ -227,8 +224,10 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
                     "id_no": dat["metadata"]["id_no"],
                     "stain_type_lower": dat["metadata"]["stain_type_lower"]
                 }})
-            if hasExpert:
+            if hasExpert and ('hasExpert' in dat):
                 classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": dat["hasExpert"]}})
+            else:
+                classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": False}})
         else:
             if stain_and_core:
                 classifCollection.update_one({"_id": cln["_id"]},{"$set": {
@@ -251,7 +250,7 @@ if __name__ == "__main__":
     # add_lowercase_metadata_staintype(subjectsCollection)
     # correct_known_mistakes(subjectsCollection,classifCollection)
     # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
-    # add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
-    # add_indices(classifCollection,subjectsCollection)
-    # sanity_checks_on_db(subjectsCollection)
+    add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
+    add_indices(classifCollection,subjectsCollection)
+    sanity_checks_on_db(subjectsCollection)
     print "done with rto_mongodb_utils.py"
