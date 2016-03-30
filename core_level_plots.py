@@ -269,8 +269,8 @@ def create_table_summary_stats_each_stain(aggregate=aggregate):
 
 
 if __name__ == "__main__":
-    # f, ax = plot_contribution_patterns()
-    f, ax = scatter_for_each_stain()
+    f, ax = plot_contribution_patterns()
+    # f, ax = scatter_for_each_stain()
     # r, ci, f, ax = scatter_performance_single_graph()
     # f, ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(
     #   nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
