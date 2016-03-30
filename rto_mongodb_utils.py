@@ -217,7 +217,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
     print "adding core-level info to each classification, and/or adding answers as top-level fields"
     #### add the cleaned metadata.id_no and stain_type_lower to each classification that we have GS data for
     print user_aggregation.stains
-    for cln in classifCollection.find({"stain_type_lower": {"$in": user_aggregation.stains}}):
+    for cln in classifCollection.find({}):
         # get metadata.id_no
         sj = subjectsCollection.find({"_id": cln["subject_ids"][0]})
         if sj.count() == 1:
