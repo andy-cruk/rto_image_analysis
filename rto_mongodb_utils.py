@@ -10,6 +10,7 @@ import pandas as pd
 import pymongo
 import re
 
+
 # set the name of the database on your local host to connect to
 currentDB = 'RTO_20160329'
 
@@ -53,7 +54,7 @@ def add_lowercase_metadata_staintype(db):
     db.update_many({"group.name":"MRE11_new_TMAs"},{"$set":{"metadata.stain_type":"MRE11new"}})
     db.update_many({"group.name":"MRE11c"},{"$set":{"metadata.stain_type":"MRE11c"}})
     # check all entries have metadata.stain_type
-    assert(db.find({"metadata.stain_type":{"$exists":False}}).count() == 0)
+    assert(db.find({"metadata.stain_type":{"$exists": False}}).count() == 0)
     # add lowercase version
     for d in db.find({}):
         db.update({"_id":d["_id"]},{"$set":{"metadata.stain_type_lower":d["metadata"]["stain_type"].lower()}})
@@ -127,6 +128,11 @@ def correct_known_mistakes(db, classifCollection):
     db.update_many({"metadata.id_no":"8583  p21"},{"$set":{"metadata.id_no":"8583 p21"}})
     db.update_many({"metadata.id_no":"8772 MRE11 new_"},{"$set":{"metadata.id_no":"8772 MRE11 new"}})
     db.update_many({"metadata.id_no":"7812 RAD50 "},{"$set":{"metadata.id_no":"7812 RAD50"}})
+    db.update_many({"metadata.id_no": "8736 ARD50"}, {"$set": {"metadata.id_no": "8736 RAD50"}})
+    db.update_many({"metadata.id_no": "7753 ARD50"}, {"$set": {"metadata.id_no": "7753 RAD50"}})
+    db.update_many({"metadata.id_no": "7853 ARD50"}, {"$set": {"metadata.id_no": "7853 RAD50"}})
+    db.update_many({"metadata.id_no": "8221 ARD50"}, {"$set": {"metadata.id_no": "8221 RAD50"}})
+    db.update_many({"metadata.id_no": "8445 RAD59"}, {"$set": {"metadata.id_no": "8445 RAD50"}})
 
     # remove a bunch of tutorial images
     db.delete_many({"metadata.id_no":{"$in":[
@@ -210,6 +216,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
     # of information is different so important to be able to select what piece goes when
     print "adding core-level info to each classification, and/or adding answers as top-level fields"
     #### add the cleaned metadata.id_no and stain_type_lower to each classification that we have GS data for
+    print user_aggregation.stains
     for cln in classifCollection.find({"stain_type_lower": {"$in": user_aggregation.stains}}):
         # get metadata.id_no
         sj = subjectsCollection.find({"_id": cln["subject_ids"][0]})
@@ -244,7 +251,7 @@ if __name__ == "__main__":
     # add_lowercase_metadata_staintype(subjectsCollection)
     # correct_known_mistakes(subjectsCollection,classifCollection)
     # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
-    add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
-    add_indices(classifCollection,subjectsCollection)
-    sanity_checks_on_db(subjectsCollection)
+    # add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
+    # add_indices(classifCollection,subjectsCollection)
+    # sanity_checks_on_db(subjectsCollection)
     print "done with rto_mongodb_utils.py"
