@@ -59,7 +59,7 @@ filterSubjects = {"$and": [
 ]}
 
 # list all stain types we have GS for in a list
-f = os.listdir('GS')
+f = [fn for fn in os.listdir('GS') if ('GS_' in fn) and ('.xlsx' in fn)]
 stains = [x.lstrip('GS_').rstrip('.xlsx') for x in f]
 
 # save file for scores

@@ -1,0 +1,2 @@
+#Gold standard data
+Each excel file contains gold standard scores for ~10% of the full dataset. Gold standard scores consist of a % stained and an intensity of staining. The exact lowercase string indicating stain is maintained throughout the project (e.g. in mongoDB, in outcome reports, and so on)
