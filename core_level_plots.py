@@ -41,7 +41,7 @@ def plot_contribution_patterns():
     ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,3), bymonthday=1))
     ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13), bymonthday=1))
     ax[1].set_xlim(left = datetime.date(2014,10,01),right=max(dat))
-    ax[0].set_ylim(bottom=1000, top=350000)
+    ax[0].set_ylim(bottom=0, top=350000)
     ax[0].minorticks_on()
     ax[0].grid(b=True, axis='both', which='major', color='k', linestyle='-')
     ax[1].grid(b=True, axis='x', which='major', color='k', linestyle='-')

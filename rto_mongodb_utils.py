@@ -10,6 +10,7 @@ import pandas as pd
 import pymongo
 import re
 
+
 # set the name of the database on your local host to connect to
 # currentDB = 'RTO_20160329'
 currentDB = 'RTO_20160212'
@@ -54,7 +55,7 @@ def add_lowercase_metadata_staintype(db):
     db.update_many({"group.name":"MRE11_new_TMAs"},{"$set":{"metadata.stain_type":"MRE11new"}})
     db.update_many({"group.name":"MRE11c"},{"$set":{"metadata.stain_type":"MRE11c"}})
     # check all entries have metadata.stain_type
-    assert(db.find({"metadata.stain_type":{"$exists":False}}).count() == 0)
+    assert(db.find({"metadata.stain_type":{"$exists": False}}).count() == 0)
     # add lowercase version
     for d in db.find({}):
         db.update({"_id":d["_id"]},{"$set":{"metadata.stain_type_lower":d["metadata"]["stain_type"].lower()}})
@@ -68,11 +69,8 @@ def add_whether_subject_is_part_of_core_with_expert_data(db):
     :return: nothing
     """
     print 'adding for each segment whether it is part of an expert core'
-    # find stains with GS data; will also return folders and other files, so make sure folder is clean.
-    f = os.listdir('GS')
-    stains = [x.lstrip('GS_').rstrip('.xlsx') for x in f]
     # loop over each stain
-    for stain in stains:
+    for stain in user_aggregation.stains:
         print "adding expert tags for stain "+stain
         # get all entries in mongodb for this stain, returning only _id and id_no
         subjectCursor = db.find(filter={'metadata.stain_type_lower':stain},no_cursor_timeout=True)
@@ -128,6 +126,11 @@ def correct_known_mistakes(db, classifCollection):
     db.update_many({"metadata.id_no":"8583  p21"},{"$set":{"metadata.id_no":"8583 p21"}})
     db.update_many({"metadata.id_no":"8772 MRE11 new_"},{"$set":{"metadata.id_no":"8772 MRE11 new"}})
     db.update_many({"metadata.id_no":"7812 RAD50 "},{"$set":{"metadata.id_no":"7812 RAD50"}})
+    db.update_many({"metadata.id_no": "8736 ARD50"}, {"$set": {"metadata.id_no": "8736 RAD50"}})
+    db.update_many({"metadata.id_no": "7753 ARD50"}, {"$set": {"metadata.id_no": "7753 RAD50"}})
+    db.update_many({"metadata.id_no": "7853 ARD50"}, {"$set": {"metadata.id_no": "7853 RAD50"}})
+    db.update_many({"metadata.id_no": "8221 ARD50"}, {"$set": {"metadata.id_no": "8221 RAD50"}})
+    db.update_many({"metadata.id_no": "8445 RAD59"}, {"$set": {"metadata.id_no": "8445 RAD50"}})
 
     # remove a bunch of tutorial images
     db.delete_many({"metadata.id_no":{"$in":[
@@ -211,7 +214,8 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
     # of information is different so important to be able to select what piece goes when
     print "adding core-level info to each classification, and/or adding answers as top-level fields"
     #### add the cleaned metadata.id_no and stain_type_lower to each classification that we have GS data for
-    for cln in classifCollection.find({"stain_type_lower": {"$in": user_aggregation.stains}}):
+    print user_aggregation.stains
+    for cln in classifCollection.find({}):
         # get metadata.id_no
         sj = subjectsCollection.find({"_id": cln["subject_ids"][0]})
         if sj.count() == 1:
@@ -221,8 +225,10 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
                     "id_no": dat["metadata"]["id_no"],
                     "stain_type_lower": dat["metadata"]["stain_type_lower"]
                 }})
-            if hasExpert:
+            if hasExpert and ('hasExpert' in dat):
                 classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": dat["hasExpert"]}})
+            else:
+                classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": False}})
         else:
             if stain_and_core:
                 classifCollection.update_one({"_id": cln["_id"]},{"$set": {
