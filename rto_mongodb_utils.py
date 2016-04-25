@@ -12,11 +12,7 @@ import re
 
 
 # set the name of the database on your local host to connect to
-<<<<<<< HEAD
 currentDB = 'RTO_20160425'
-=======
-# currentDB = 'RTO_20160329'
-currentDB = 'RTO_20160212'
 
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
