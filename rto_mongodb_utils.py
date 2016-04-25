@@ -13,7 +13,7 @@ import re
 
 # set the name of the database on your local host to connect to
 # currentDB = 'RTO_20160329'
-currentDB = 'RTO_20160212'
+currentDB = 'RTO_20160329'
 
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
@@ -214,7 +214,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
     # of information is different so important to be able to select what piece goes when
     print "adding core-level info to each classification, and/or adding answers as top-level fields"
     #### add the cleaned metadata.id_no and stain_type_lower to each classification that we have GS data for
-    print user_aggregation.stains
+
     for cln in classifCollection.find({}):
         # get metadata.id_no
         sj = subjectsCollection.find({"_id": cln["subject_ids"][0]})
@@ -248,9 +248,9 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
 
 if __name__ == "__main__":
     subjectsCollection, classifCollection, dbConnection = user_aggregation.pymongo_connection_open()
-    # add_lowercase_metadata_staintype(subjectsCollection)
-    # correct_known_mistakes(subjectsCollection,classifCollection)
-    # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
+    add_lowercase_metadata_staintype(subjectsCollection)
+    correct_known_mistakes(subjectsCollection,classifCollection)
+    add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
     add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
     add_indices(classifCollection,subjectsCollection)
     sanity_checks_on_db(subjectsCollection)
