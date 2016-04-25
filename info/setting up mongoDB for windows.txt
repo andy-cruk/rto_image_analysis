@@ -18,6 +18,7 @@
 - Now add all necessary collections to your database
 
 In pyCharm you can do things like:
+    from pymongo import MongoClient
 	dbConnection = MongoClient("localhost", 27017)
 	handleToData = dbConnection.<name of your db>.<name of classification>
 Count number of entries in JSON
