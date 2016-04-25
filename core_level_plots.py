@@ -27,6 +27,7 @@ def plot_contribution_patterns():
     """
     _,classifCollection,_ = pymongo_connection_open()
     pmCursor = classifCollection.find({}, projection={'_id': False,'updated_at': True})
+    assert pmCursor.count() > 0
     # list comprehension to end up with a list of datetimes
     dat = [x['updated_at'] for x in list(pmCursor)]
     # sort the list
