@@ -36,13 +36,13 @@ def plot_contribution_patterns():
     f,ax = plt.subplots(nrows=2, sharex=True)
     delta = max(dat)-min(dat)
     ax[0].hist([dates.date2num(y) for y in dat], bins=delta.days, cumulative=False, histtype='step', log=True)
-    ax[1].plot(dat,counts)
+    ax[1].plot(dat, counts)
     ax[1].xaxis.set_major_formatter(dates.DateFormatter('%m/%y'))
-    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,3), bymonthday=1))
-    ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13), bymonthday=1))
-    ax[1].set_xlim(left = datetime.date(2014,10,01),right=max(dat))
-    ax[0].set_ylim(bottom=0, top=350000)
-    ax[0].minorticks_on()
+    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,2), bymonthday=1))
+    # ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13), bymonthday=1))
+    ax[1].set_xlim(left = datetime.date(2014, 10, 01),right=max(dat))
+    ax[0].set_ylim(bottom=200, top=350000)
+    # ax[0].minorticks_on()
     ax[0].grid(b=True, axis='both', which='major', color='k', linestyle='-')
     ax[1].grid(b=True, axis='x', which='major', color='k', linestyle='-')
     # ax[0].grid(b=True, axis='y', which='minor', color='k', linestyle='--')
@@ -50,7 +50,7 @@ def plot_contribution_patterns():
     ax[1].set_ylabel('cumulative contributions')
     ax[1].set_xlabel('date (month/year)')
     plt.show()
-    return f,ax
+    return f, ax
 
 
 def scatter_for_each_stain(xdat=aggregate+'.expSQS', ydat=aggregate+'.aggregateSQSCorrected', correlation='spearman'):

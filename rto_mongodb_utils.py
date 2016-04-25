@@ -12,8 +12,11 @@ import re
 
 
 # set the name of the database on your local host to connect to
+<<<<<<< HEAD
+currentDB = 'RTO_20160425'
+=======
 # currentDB = 'RTO_20160329'
-currentDB = 'RTO_20160329'
+currentDB = 'RTO_20160212'
 
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
@@ -52,8 +55,8 @@ def add_lowercase_metadata_staintype(db):
     # 53BP1 has the wrong metadata.stain_type and group.name (should be a 1, not an i at the end)
     db.update_many({"group.name":"53BPI"},{"$set":{"group.name":"53BP1","metadata.stain_type":"53BP1"}})
     # the different MRE11 variants need to update their stain_type too
-    db.update_many({"group.name":"MRE11_new_TMAs"},{"$set":{"metadata.stain_type":"MRE11new"}})
-    db.update_many({"group.name":"MRE11c"},{"$set":{"metadata.stain_type":"MRE11c"}})
+    db.update_many({"group.name": "MRE11_new_TMAs"}, {"$set": {"metadata.stain_type": "MRE11new"}})
+    db.update_many({"group.name": "MRE11c"}, {"$set": {"metadata.stain_type": "MRE11c"}})
     # check all entries have metadata.stain_type
     assert(db.find({"metadata.stain_type":{"$exists": False}}).count() == 0)
     # add lowercase version
@@ -101,7 +104,10 @@ def sanity_checks_on_db(db):
         # and look for inconsistent naming; add correction to correct_known_mistakes(db)
         id_no = list(db.find({'metadata.stain_type_lower':stain},{'_id':False,'metadata.id_no':True}))
         lengths = [len(x['metadata']['id_no']) for x in id_no]
-        assert(len(set(lengths)) <= 1)
+        if len(set(lengths)) > 1:
+            for id in id_no:
+                print id['metadata']['id_no'].replace(' ','.')
+            raise Exception('found different lengths of id_no')
 
 
 def correct_known_mistakes(db, classifCollection):
@@ -131,6 +137,7 @@ def correct_known_mistakes(db, classifCollection):
     db.update_many({"metadata.id_no": "7853 ARD50"}, {"$set": {"metadata.id_no": "7853 RAD50"}})
     db.update_many({"metadata.id_no": "8221 ARD50"}, {"$set": {"metadata.id_no": "8221 RAD50"}})
     db.update_many({"metadata.id_no": "8445 RAD59"}, {"$set": {"metadata.id_no": "8445 RAD50"}})
+    db.update_many({"metadata.id_no": "7812 RAD50 "}, {"$set": {"metadata.id_no": "7812 RAD50"}})
 
     # remove a bunch of tutorial images
     db.delete_many({"metadata.id_no":{"$in":[
@@ -248,10 +255,10 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
 
 if __name__ == "__main__":
     subjectsCollection, classifCollection, dbConnection = user_aggregation.pymongo_connection_open()
-    add_lowercase_metadata_staintype(subjectsCollection)
+    # add_lowercase_metadata_staintype(subjectsCollection)
     correct_known_mistakes(subjectsCollection,classifCollection)
-    add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
-    add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
-    add_indices(classifCollection,subjectsCollection)
+    # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
+    # add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
+    # add_indices(classifCollection,subjectsCollection)
     sanity_checks_on_db(subjectsCollection)
     print "done with rto_mongodb_utils.py"
