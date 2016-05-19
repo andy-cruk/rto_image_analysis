@@ -141,7 +141,7 @@ def plot_patient_level_correlations(measure='aggregateSQSCorrected'):
 
 def patient_level_pca(measure='aggregateSQSCorrected'):
     """
-    Takes a measure and all stains, and runs pca on these. Not sure what output will be yet
+    Takes a measure and all stains, and runs pca on these.
     :param measure: string indicating a measure as recorded in combine_cores_per_patient()
     :return:
     """
