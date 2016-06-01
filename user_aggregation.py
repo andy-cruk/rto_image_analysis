@@ -31,11 +31,11 @@ pd.set_option('display.max_columns', 500)
 pd.set_option('expand_frame_repr', False)
 
 # USER OPTIONS
-# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5,
-stain = "ck5".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5, mre11new
+stain = "mre11new".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
 # aggregate = 'segment_aggregation'
-bootstrap = True       # whether to bootstrap
+bootstrap = False       # whether to bootstrap
 print(stain, aggregate)
 
 if (aggregate == "ignoring_segments") & (not bootstrap):
@@ -498,6 +498,39 @@ def core_dataframe_write_to_excel(cores):
     # writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
     # c.to_excel(excel_writer=writer,sheet_name=stain+aggregate)
     # writer.save()
+def combine_all_stains_from_clean_excel_results():
+    """Combines all the excel files *clean.xlsx into a single excel sheet, including patient IDs.
+
+    On top of core_dataframe_write_to_excel(), will also add encrypted patient ID and stain
+
+    This was requested by Anne Kiltie et al., email dated May 27 2016
+    """
+    # find all _clean.xlsx files from ignoring segments
+    f = ['\\'.join(['results',fn]) for fn in os.listdir('results') if ('RtO_results_' in fn) and ('ignoring_segments_clean.xlsx' in fn)]
+    # load all data into a pandas dataframe, starting with the first
+    df = pd.read_excel(f[0])
+    for fn in f[1:]:
+        df_tmp = pd.read_excel(fn)
+        # check all columns are the same
+        assert all(df_tmp.columns == df.columns)
+        # add new data as rows to existing dataframe
+        df = df.append(df_tmp)
+    # reset index
+    df.reset_index(inplace=True, drop=True)
+    # split core ID and stain
+    df['stain'] = pd.Series([s.split()[1] for s in df.core])
+    df['Core ID'] = [s.split()[0] for s in df.core]
+    df['Core ID'] = df['Core ID'].astype(np.int)
+    df.drop('core', axis=1, inplace=True)
+    # now do a lookup to add patient ID
+    lut = pd.read_excel('info/patient_core_LUT_encrypted.xlsx')
+    df = df.merge(right=lut, how='left', left_on='Core ID', right_on='core', sort=True, copy=False).drop('core', axis=1, inplace=False)
+    # write to excel
+    fn = "results\cores_clean_results.xlsx"
+    os.remove(fn) # delete existing file
+    df.to_excel(excel_writer=(fn))
+
+
 def core_dataframe_write_to_mongodb(cores):
     """ Inserts the records.
 
@@ -574,7 +607,7 @@ def percentage_to_category(percentages):
     :return transform: pandas dataframe with a category and percentage column, indicating max percentage within that category
     """
     # set up dataframe with thresholds and categories. Percentages are inclusive. So if you're a 38, you'll be assigned the category which has the first value above 38 (e.g. 50)
-    if stain in ('mre11','test mre11','p21','tip60','rad50','53bp1','ctip_nuclear','hdac2','nbs1','rpa','mre11_cterm','dck_nuclear','mdm2'):
+    if stain in ('mre11','test mre11','p21','tip60','rad50','53bp1','ctip_nuclear','hdac2','nbs1','rpa','mre11_cterm','dck_nuclear','mdm2', 'mre11new'):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100],[0,12.5,37.5,62.5,85,97.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('p53','ki67'):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,50,75,100],[0,5,17.5,37.5,62.5,87.5]]).T,columns=("category","percentage","middle_of_bin"))
@@ -651,6 +684,7 @@ def run_full_cores():
     cores = core_dataframe_add_corrected_SQS(cores)
     core_dataframe_write_to_mongodb(cores)
     core_dataframe_write_to_excel(cores)
+    combine_all_stains_from_clean_excel_results()
     return (cores,cln)
 def run_bootstrap_rho_segment_aggregation():
     dbBootstraps = dbConnection.results.bootstraps
