@@ -12,7 +12,7 @@ import re
 
 
 # set the name of the database on your local host to connect to
-currentDB = 'RTO_20160425'
+currentDB = 'RTO_20160601'
 
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
@@ -221,7 +221,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
     count = 0. # initialise as float to make sure you get decimal points when dividing
     for cln in classifCollection.find({}):
         if (count % 20000) == 0:
-            print('%.1f' % 100*(count/total_entries))
+            print('%.1f% completed' % (100*count/total_entries))
         count += 1
 
         # get metadata.id_no
@@ -237,7 +237,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
                 classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": dat["hasExpert"]}})
             else:
                 classifCollection.update_one({"_id": cln["_id"]}, {"$set": {"hasExpert": False}})
-        else:
+        else: # something is wrong and there's more than 1 matching subject
             if stain_and_core:
                 classifCollection.update_one({"_id": cln["_id"]},{"$set": {
                     "id_no": None,
@@ -256,7 +256,7 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
 
 if __name__ == "__main__":
     subjectsCollection, classifCollection, dbConnection = user_aggregation.pymongo_connection_open()
-    add_lowercase_metadata_staintype(subjectsCollection)
+    # add_lowercase_metadata_staintype(subjectsCollection)
     correct_known_mistakes(subjectsCollection,classifCollection)
     add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
     add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
