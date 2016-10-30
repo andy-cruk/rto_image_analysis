@@ -31,11 +31,11 @@ pd.set_option('display.max_columns', 500)
 pd.set_option('expand_frame_repr', False)
 
 # USER OPTIONS
-# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5, mre11new
-stain = "mre11new".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5, mre11new, ck20, tip60, ki67
+stain = "tip60".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
 # aggregate = 'segment_aggregation'
-bootstrap = False       # whether to bootstrap
+bootstrap = True       # whether to bootstrap
 print(stain, aggregate)
 
 if (aggregate == "ignoring_segments") & (not bootstrap):
@@ -217,7 +217,7 @@ def sj_in_expert_core(coreID,coresGS):
     # if you get to this part of the code, no match has been found in rowGS
     return False
 def classifications_dataframe_save(cln,fn=classificationsDataframeFn):
-    print "Saving dataframe to", fn
+    print("Saving dataframe to %s" % fn)
     cln.to_pickle(fn)
 def classifications_dataframe_load(fn=classificationsDataframeFn):
     """load dataframe and return pandas dataframe"""
@@ -331,6 +331,8 @@ def core_dataframe_fill(cln):
     # add category for aggregateWeighted
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted)[0])
     return cores
+
+@profile
 def cores_dataframe_fill_from_individual_classifications(cln, nCl=0):
     """
     Takes a dataframe with classifications from classifications_dataframe_fill_individual_classifications() and
@@ -556,7 +558,7 @@ def write_bootstrap_single_to_mongodb(dat, N):
     db = dbConnection.results.bootstraps
     result = db.insert_one({
                 'stain':stain,
-                'nUsersPerSubject':N,
+                'nUsersPerSubject': int(N),
                 'rhoProp':dat[0],
                 'rhoIntensity':dat[1],
                 'Hscore':dat[2],
@@ -695,7 +697,7 @@ def run_bootstrap_rho_segment_aggregation():
         bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': N, 'aggregate': aggregate}).count()
         # either some samples remain, or 0 remain (can't be negative)
         toDo = max(0, samplesPerNumberOfUsers - bootstrapCount)
-        print "Already",bootstrapCount,"bootstraps in database, doing",toDo,"more"
+        print("Already %d bootstraps in database, doing %d more" % (bootstrapCount, toDo))
         for iB in range(toDo):
             cln = classifications_dataframe_fill(numberOfUsersPerSubject=N,skipNonExpertClassifications=True)
             cln = cln_add_columns_aggregating_stain(cln)
@@ -704,7 +706,8 @@ def run_bootstrap_rho_segment_aggregation():
             cores = core_dataframe_add_expert_scores(cores)
             cores = core_dataframe_add_corrected_SQS(cores)
             rho = user_vs_expert_rho(cores)
-            print "including",N,"users; completed",iB+1,"out of",toDo,'. Elapsed time for this bootstrap:',np.round(time.time()-t),'seconds'
+            print("including %d users; completed %d out of %d. Elapsed time for this bootstrap: %d seconds" % (
+                N, iB+1, toDo, np.round(time.time()-t)))
             # write this iteration to mongodb
             write_bootstrap_single_to_mongodb(rho,N)
         ix += 1
@@ -715,21 +718,22 @@ def run_bootstrap_rho_ignoring_segments():
     for N in numberOfClassificationsPerCore:
         t = time.time()
         # check how many bootstrap entries there are
-        bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': N, 'aggregate': aggregate}).count()
+        bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': int(N), 'aggregate': aggregate}).count()
         # either some samples remain, or 0 remain (can't be negative)
         toDo = max(0, samplesPerNumberOfUsers - bootstrapCount)
-        print "Already",bootstrapCount,"bootstraps in database, doing",toDo,"more"
+        print("Already %d bootstraps in database, doing %d more" % (bootstrapCount, toDo))
         for iB in range(toDo):
             cores = cores_dataframe_fill_from_individual_classifications(cln=clnAll, nCl=N)
             cores = core_dataframe_split_core_id(cores)
             cores = core_dataframe_add_expert_scores(cores)
             cores = core_dataframe_add_corrected_SQS(cores)
             rho = user_vs_expert_rho(cores)
-            print "including",N,"users; completed",iB+1,"out of",toDo,'. Elapsed time:',np.round(time.time()-t),'seconds'
+            print("including %d users; completed %d out of %d. Elapsed time for this bootstrap: %d seconds" % (
+                N, iB + 1, toDo, np.round(time.time() - t)))
             # write this iteration to mongodb
             write_bootstrap_single_to_mongodb(rho,N)
             # check how many bootstrap entries there are
-            bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': N, 'aggregate': aggregate}).count()
+            bootstrapCount = dbBootstraps.find({'stain': stain, 'nUsersPerSubject': int(N), 'aggregate': aggregate}).count()
 
 
 
@@ -747,7 +751,7 @@ def main():
 
     # close the connection to local mongoDB
     pymongo_connection_close()
-    print "Finished user_aggregation.py"
+    print("Finished user_aggregation.py")
 
 # load GS data
 coresGS = load_GS_data(stain)

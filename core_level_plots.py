@@ -40,7 +40,7 @@ def plot_contribution_patterns():
     ax[1].xaxis.set_major_formatter(dates.DateFormatter('%m/%y'))
     ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,2), bymonthday=1))
     # ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13), bymonthday=1))
-    ax[1].set_xlim(left = datetime.date(2014, 10, 01),right=max(dat))
+    ax[1].set_xlim(left = datetime.date(2014, 10, 1),right=max(dat))
     ax[0].set_ylim(bottom=200, top=350000)
     # ax[0].minorticks_on()
     ax[0].grid(b=True, axis='both', which='major', color='k', linestyle='-')
@@ -88,6 +88,35 @@ def scatter_for_each_stain(xdat=aggregate+'.expSQS', ydat=aggregate+'.aggregateS
 
     plt.show()
     return fig,axes
+
+
+def scatter_all_stains_together(xdat=aggregate+'.expSQS', ydat=aggregate+'.aggregateSQSCorrected', correlation='spearman'):
+    """ Takes two measures from the cores database and for each stain, scatters them against one another
+    :param xdat: string pointing to column in cores dataset, laid out along x-axis
+    :param ydat: see xdat, but along y-axis
+    :param correlation: type of correlation to compute through pd.DataFrame.corr function ('spearman','pearson','kendall')
+    :return: f,ax handles
+    """
+
+    df = load_cores_into_pandas()
+    # ndarray of strings
+    stains = df.stain.unique()
+    fig, ax = plt.subplots(1)
+    rows = ~np.isnan(df[xdat]) & ~np.isnan(df[ydat])
+    x = df.loc[rows, xdat]
+    y = df.loc[rows, ydat]
+    ax.scatter(x, y, c='black', alpha=0.2)
+    ax.set_title('All analysed cores')
+    # add Spearman correlation
+    r = x.corr(y,method=correlation)
+    ax.annotate(correlation + ' r = '+"{:.2f}".format(r), textcoords='axes fraction', xy=(0.2,0.05), xytext=(0.2,0.05))
+    # add labels
+    ax.set_xlabel(xdat)
+    ax.set_ylabel(ydat)
+    plt.plot(x, np.poly1d(np.polyfit(x, y, 1))(x))
+
+    plt.show()
+    return fig, ax
 
 
 def scatter_performance_single_graph(xcorr=(aggregate+'.expProp', aggregate+'.aggregatePropCorrected'), ycorr=(aggregate+'.expIntensity', aggregate+'.aggregateIntensityCorrected'), xmethod=stats.spearmanr, ymethod=qwk.quadratic_weighted_kappa):
@@ -265,16 +294,18 @@ def create_table_summary_stats_each_stain(aggregate=aggregate):
                 raise Exception('no bootstrap defined for this error function')
             # http://stackoverflow.com/questions/455612/limiting-floats-to-two-decimal-points
             dfout.loc[stain, output[iM][0]] = "{0:.2f}".format(score) + ' (' + "{0:.2f}".format(ci[0]) + ', ' + "{0:.2f}".format(ci[1]) + ')'
-    print dfout
+    print(dfout)
     dfout.to_excel('results/summary_stats_'+aggregate+'.xlsx')
 
 
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
     f, ax = scatter_for_each_stain()
+    # f, ax = scatter_all_stains_together()
     # r, ci, f, ax = scatter_performance_single_graph()
     # f, ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(
     #   nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
     # create_table_summary_stats_each_stain()
 
-    print "done with core_level_plots.py"
+    f.savefig('C:\\Users\\Peter\\Desktop\\figure.eps', format='eps')
+    print("done with core_level_plots.py")

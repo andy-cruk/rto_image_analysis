@@ -4,3 +4,4 @@ env
 *.pkl
 results
 .ipynb_checkpoints
+*.lprof

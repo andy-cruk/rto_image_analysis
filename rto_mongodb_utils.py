@@ -12,7 +12,7 @@ import re
 
 
 # set the name of the database on your local host to connect to
-currentDB = 'RTO_20160601'
+currentDB = 'RTO_20161029'
 
 def add_indices(classifCollection,subjectsCollection):
     """ adds indices that will speed up various functions in user_aggregation
@@ -43,7 +43,7 @@ def add_lowercase_metadata_staintype(db):
     """ Works on subject database. Not all
     :return: returns nothing
     """
-    print "adding lowercase metadata stain type"
+    print("adding lowercase metadata stain type")
     # Ki67 has the wrong metadata.stain_type
     db.update_many({"group.name":"TMAs_Ki67"},{"$set":{"metadata.stain_type":"Ki67"}})
     # NBS1 has the wrong metadata.stain_type
@@ -67,10 +67,10 @@ def add_whether_subject_is_part_of_core_with_expert_data(db):
     :param db: pymongo handle to a collection, in this case the subjects collection
     :return: nothing
     """
-    print 'adding for each segment whether it is part of an expert core'
+    print('adding for each segment whether it is part of an expert core')
     # loop over each stain
     for stain in user_aggregation.stains:
-        print "adding expert tags for stain "+stain
+        print("adding expert tags for stain "+stain)
         # get all entries in mongodb for this stain, returning only _id and id_no
         subjectCursor = db.find(filter={'metadata.stain_type_lower':stain},no_cursor_timeout=True)
         # loop over each and check whether it has expert data
@@ -84,9 +84,9 @@ def sanity_checks_on_db(db):
     Only tests those entries belonging to a dataset with GS
     Will not detect entries where both metadata.stain_type is erroneous AND group.name is erroneous
     """
-    print "running sanity checks on database"
+    print("running sanity checks on database")
     for stain in user_aggregation.stains:
-        print 'checking '+stain
+        print('checking ' + stain)
         # check if any records exist for this one
         if db.find({'metadata.stain_type_lower':stain}).count() <= 0:
             continue
@@ -102,7 +102,7 @@ def sanity_checks_on_db(db):
         lengths = [len(x['metadata']['id_no']) for x in id_no]
         if len(set(lengths)) > 1:
             for id in id_no:
-                print id['metadata']['id_no'].replace(' ','.')
+                print(id['metadata']['id_no'].replace(' ','.'))
             raise Exception('found different lengths of id_no')
 
 
@@ -110,7 +110,7 @@ def correct_known_mistakes(db, classifCollection):
     """ This corrects a number of mistakes that have to be corrected through hardcoding
 
     """
-    print "correcting known mistakes"
+    print("correcting known mistakes")
     # remove some unwanted data in subjects database
     db.delete_many({"group.name": {"$in": ["squamous_lung_cd8","squamous_lung_pdl1","er","adeno_lung_cd8","adeno_lung_pdl1","tonsil_egfr"]}})
 
@@ -127,7 +127,6 @@ def correct_known_mistakes(db, classifCollection):
     db.update_many({"metadata.id_no":"7987  p21"},{"$set":{"metadata.id_no":"7987 p21"}})
     db.update_many({"metadata.id_no":"8583  p21"},{"$set":{"metadata.id_no":"8583 p21"}})
     db.update_many({"metadata.id_no":"8772 MRE11 new_"},{"$set":{"metadata.id_no":"8772 MRE11 new"}})
-    db.update_many({"metadata.id_no":"7812 RAD50 "},{"$set":{"metadata.id_no":"7812 RAD50"}})
     db.update_many({"metadata.id_no": "8736 ARD50"}, {"$set": {"metadata.id_no": "8736 RAD50"}})
     db.update_many({"metadata.id_no": "7753 ARD50"}, {"$set": {"metadata.id_no": "7753 RAD50"}})
     db.update_many({"metadata.id_no": "7853 ARD50"}, {"$set": {"metadata.id_no": "7853 RAD50"}})
@@ -209,19 +208,19 @@ def correct_known_mistakes(db, classifCollection):
     # cancer + proportion stain, but intensity = 0. Also see
     # db.getCollection('classifications').distinct('updated_at',{"annotations.a-2":{"$in":['2','3','4','5','6']},"annotations.a-3":'0'})
     dr = classifCollection.delete_many({"stain_type_lower": {"$in": user_aggregation.stains}, "annotations.a-1": '1', "annotations.a-2": {"$in": ['2', '3', '4', '5', '6']}, "annotations.a-3": '0'})
-    print "deleted", dr.deleted_count, "classifications with proportion > 0, intensity = 0"
+    print("deleted %d classifications with proportion > 0, intensity = 0" % dr.deleted_count)
 
 
 def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annotations=False):
     # can add different pieces of information to classification database. This is because the order of different pieces
     # of information is different so important to be able to select what piece goes when
-    print "adding core-level info to each classification, and/or adding answers as top-level fields"
+    print("adding core-level info to each classification, and/or adding answers as top-level fields")
     #### add the cleaned metadata.id_no and stain_type_lower to each classification that we have GS data for
     total_entries = classifCollection.find({}).count()
-    count = 0. # initialise as float to make sure you get decimal points when dividing
+    count = 0.  # initialise as float to make sure you get decimal points when dividing
     for cln in classifCollection.find({}):
         if (count % 20000) == 0:
-            print('%.1f% completed' % (100*count/total_entries))
+            print('%.1f completed' % (100*count/total_entries))
         count += 1
 
         # get metadata.id_no
@@ -257,9 +256,9 @@ def add_info_to_each_classification(stain_and_core=False, hasExpert=False, annot
 if __name__ == "__main__":
     subjectsCollection, classifCollection, dbConnection = user_aggregation.pymongo_connection_open()
     # add_lowercase_metadata_staintype(subjectsCollection)
-    correct_known_mistakes(subjectsCollection,classifCollection)
-    add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
-    add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
-    add_indices(classifCollection,subjectsCollection)
+    # correct_known_mistakes(subjectsCollection,classifCollection)
+    # add_whether_subject_is_part_of_core_with_expert_data(subjectsCollection)
+    # add_info_to_each_classification(hasExpert=True, annotations=True, stain_and_core=False)
+    # add_indices(classifCollection,subjectsCollection)
     sanity_checks_on_db(subjectsCollection)
-    print "done with rto_mongodb_utils.py"
+    print("done with rto_mongodb_utils.py")
