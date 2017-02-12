@@ -13,7 +13,7 @@ For internal use, the following files are required but not available on github:
 Then you can plot results with `core_level_plots.py` or `patient_level.py`
 
 ## Copyright / Licence
-Copyright 2016 Cancer Research UK
+Copyright 2016/2017 Cancer Research UK
 
 Source Code License: The GNU Affero General Public License, either version 3 of the License or (at your option) any later version. (See agpl.txt file)
 

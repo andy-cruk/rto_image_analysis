@@ -4,6 +4,7 @@ import numpy as np
 from ast import literal_eval
 import matplotlib.pyplot as plt
 import sklearn
+from biokit.viz import corrplot
 
 def get_cores_collection():
     """ Opens a connection to the 'cores' collection in 'results' database through pymongo
@@ -132,11 +133,16 @@ def plot_patient_level_correlations(measure='aggregateSQSCorrected'):
     """
     df = read_patient_data_from_mongodb()
     sel = df[measure]
-    plt.imshow(sel.corr(), interpolation='nearest', vmin=-1, vmax=1)
-    plt.xticks(range(len(sel.columns)), sel.columns)
-    plt.yticks(range(len(sel.columns)), sel.columns)
-    plt.colorbar()
+    # remove test mre11
+    sel.drop('test mre11', axis=1, inplace=True)
+    c = corrplot.Corrplot(sel.corr())
+    c.plot(colorbar=False, upper='square', lower='text')
     plt.show()
+    # plt.imshow(sel.corr(), interpolation='nearest', vmin=-1, vmax=1)
+    # plt.xticks(range(len(sel.columns)), sel.columns, rotation='vertical')
+    # plt.yticks(range(len(sel.columns)), sel.columns)
+    # plt.colorbar()
+    # plt.show()
 
 
 def patient_level_pca(measure='aggregateSQSCorrected'):
@@ -155,7 +161,7 @@ def patient_level_pca(measure='aggregateSQSCorrected'):
     pca = sklearn.decomposition.PCA(n_components=3, copy=True, whiten=False)
     # run PCA
     pca.fit(imp.fit(df))
-    print pca.explained_variance_ratio, pca.components, pca.mean,
+    print(pca.explained_variance_ratio, pca.components, pca.mean)
 
 
 

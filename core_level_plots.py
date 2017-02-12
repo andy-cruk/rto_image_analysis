@@ -38,9 +38,9 @@ def plot_contribution_patterns():
     ax[0].hist([dates.date2num(y) for y in dat], bins=delta.days, cumulative=False, histtype='step', log=True)
     ax[1].plot(dat, counts)
     ax[1].xaxis.set_major_formatter(dates.DateFormatter('%m/%y'))
-    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,2), bymonthday=1))
+    ax[1].xaxis.set_major_locator(dates.MonthLocator(bymonth=range(1,13,1), bymonthday=1))
     # ax[1].xaxis.set_minor_locator(dates.MonthLocator(bymonth=range(1,13), bymonthday=1))
-    ax[1].set_xlim(left = datetime.date(2014, 10, 1),right=max(dat))
+    ax[1].set_xlim(left = datetime.date(2014, 10, 1), right=datetime.date(2016, 9, 28))
     ax[0].set_ylim(bottom=200, top=350000)
     # ax[0].minorticks_on()
     ax[0].grid(b=True, axis='both', which='major', color='k', linestyle='-')
@@ -63,10 +63,13 @@ def scatter_for_each_stain(xdat=aggregate+'.expSQS', ydat=aggregate+'.aggregateS
 
     df = load_cores_into_pandas()
     # ndarray of strings
-    stains = df.stain.unique()
+    stains = list(df.stain.unique())
+    if 'test mre11' in stains:
+        stains.remove('test mre11')
     # make square set of subplots
-    size = np.ceil(np.sqrt(len(stains))).astype(int)
-    fig,axes = plt.subplots(nrows=size,ncols=size,sharex=True,sharey=True)
+    ncol = 3
+    nrow = int(np.ceil(len(stains)/ncol))
+    fig, axes = plt.subplots(nrows=nrow,ncols=ncol,sharex=True,sharey=True)
     axes = axes.flatten()
     for ix,stain in enumerate(stains):
         # set current axis
@@ -206,7 +209,9 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
     for item in foo:
         stain = item['_id']
         avgNperStain[stain] = item['nUsers']
-    # loop over each stain and plot
+    #### loop over each stain and plot
+    # set color for each line
+    color = iter(plt.cm.rainbow(np.linspace(0, 1, len(stains))))
     for iStain, stain in enumerate(stains):
         # calculate mean and CI for each requested nUsersPerSubject for this stain
         means = np.zeros(len(nUsersPerSubject))*np.nan
@@ -228,11 +233,14 @@ def plot_number_of_classifications_against_performance_for_multiple_stains_in_si
             else:
                 means[iN] = np.nan
                 CI[:, iN] = np.nan
+
+        # Set color for this line
+        c = next(color)
         # plot this stain into graph with or without error bar
         if addCI:
-            ax.errorbar(x=nUsersPerSubject*offsets[iStain], y=means, yerr=np.abs(CI), label=stain)
+            ax.errorbar(x=nUsersPerSubject*offsets[iStain], y=means, yerr=np.abs(CI), label=stain, c=c)
         else:
-            ax.plot(nUsersPerSubject*offsets[iStain], means, label=stain)
+            ax.plot(nUsersPerSubject*offsets[iStain], means, label=stain, c=c)
         # add scatter to put little dots where means are
         ax.scatter(nUsersPerSubject*offsets[iStain],means)
     ax.set_xlabel('number of users included')
@@ -300,12 +308,12 @@ def create_table_summary_stats_each_stain(aggregate=aggregate):
 
 if __name__ == "__main__":
     # f, ax = plot_contribution_patterns()
-    f, ax = scatter_for_each_stain()
-    # f, ax = scatter_all_stains_together()
+    # f, ax = scatter_for_each_stain()
+    f, ax = scatter_all_stains_together()
     # r, ci, f, ax = scatter_performance_single_graph()
     # f, ax = plot_number_of_classifications_against_performance_for_multiple_stains_in_single_graph(
     #   nUsersPerSubject=np.array([1,2,4,8,16,32,64,128,256,512,1024]))
     # create_table_summary_stats_each_stain()
 
-    f.savefig('C:\\Users\\Peter\\Desktop\\figure.eps', format='eps')
+    # f.savefig('C:\\Users\\Peter\\Desktop\\figure.eps', format='eps')
     print("done with core_level_plots.py")

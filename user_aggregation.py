@@ -31,8 +31,8 @@ pd.set_option('display.max_columns', 500)
 pd.set_option('expand_frame_repr', False)
 
 # USER OPTIONS
-# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5, mre11new, ck20, tip60, ki67
-stain = "tip60".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
+# currently done (feb 12 2016): mre11, p21, 53bp1, p53, rad50, ck5, mre11new, ck20, tip60, ki67, mre11c
+stain = "ki67".lower()  # what sample to look at; must match metadata.stain_type_lower in subjects database,e.g. "TEST MRE11" or "MRE11", "rad50", "p21". Case-INSENSITIVE because the database is queried for upper and lower case version
 aggregate = 'ignoring_segments'      # how to aggregate, also field that is written to in mongodb. 'ignoring_segments' or 'segment_aggregation'
 # aggregate = 'segment_aggregation'
 bootstrap = True       # whether to bootstrap
@@ -50,8 +50,6 @@ elif (aggregate == "segment_aggregation") & (not bootstrap):
 elif (aggregate == "segment_aggregation") & bootstrap:
     numberOfUsersPerSubject = np.array([1,2,3,4,5,6]) # will loop over each of the number of users and calculate Spearman rho. Only used if aggregate = 'segment_aggregation'. Set to 0 to not restrict number of users
     samplesPerNumberOfUsers = 1000       # for each value in numberOfUsersPerSubject, how many times to sample users with replacement. Set to 1 if you just want to run once, e.g. when you include all the users
-
-
 
 # set dictionary with filters to feed to mongoDB. If lowercase versions don't exist use rto_mongodb_utils to add lowercase versions
 filterSubjects = {"$and": [
@@ -332,7 +330,6 @@ def core_dataframe_fill(cln):
     cores.insert(loc=cores.columns.get_loc("aggregatePropWeighted")+1,column="aggregatePropWeightedCategory",value=percentage_to_category(cores.aggregatePropWeighted)[0])
     return cores
 
-@profile
 def cores_dataframe_fill_from_individual_classifications(cln, nCl=0):
     """
     Takes a dataframe with classifications from classifications_dataframe_fill_individual_classifications() and
@@ -365,7 +362,7 @@ def load_GS_data(stain=stain):
     """
     loads the GS data for a stain and adds other columns relevant for analysis
     """
-    coresGS = pd.read_excel("GS\GS_"+stain+".xlsx")
+    coresGS = pd.read_excel("GS/GS_"+stain+".xlsx")
     coresGS = coresGS.rename(columns={
         'Core ID': 'coreID',
         '% Positive': 'expProp',
@@ -609,7 +606,7 @@ def percentage_to_category(percentages):
     :return transform: pandas dataframe with a category and percentage column, indicating max percentage within that category
     """
     # set up dataframe with thresholds and categories. Percentages are inclusive. So if you're a 38, you'll be assigned the category which has the first value above 38 (e.g. 50)
-    if stain in ('mre11','test mre11','p21','tip60','rad50','53bp1','ctip_nuclear','hdac2','nbs1','rpa','mre11_cterm','dck_nuclear','mdm2', 'mre11new'):
+    if stain in ('mre11','test mre11','p21','tip60','rad50','53bp1','ctip_nuclear','hdac2','nbs1','rpa','mre11c','dck_nuclear','mdm2', 'mre11new'):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,25,50,75,95,100],[0,12.5,37.5,62.5,85,97.5]]).T,columns=("category","percentage","middle_of_bin"))
     elif stain in ('p53','ki67'):
         transform = pd.DataFrame(data=np.array([[0,1,2,3,4,5],[0,10,25,50,75,100],[0,5,17.5,37.5,62.5,87.5]]).T,columns=("category","percentage","middle_of_bin"))
