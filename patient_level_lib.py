@@ -34,7 +34,7 @@ def load_cores_into_pandas(mongoFilter=None, projection=None, limit=0):
     """
     # set defaults from non-mutable default values
     if mongoFilter is None:
-        mongoFilter = {}
+        mongoFilter = {'stain': {'$ne': 'test mre11'}}
     if projection is None:
         projection = {'_id': False}
     # get pymongo collection handle to cores database
